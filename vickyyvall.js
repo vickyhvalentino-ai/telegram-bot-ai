@@ -38,7 +38,7 @@ try {
 // ============================================================
 // KONFIGURASI
 // ============================================================
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || 'PASTE_BOT_TOKEN_DI_SINI';
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || 'ISI_TELEGRAM_TOKEN_LU';
 const PORT = process.env.PORT || 8080;
 const MAX_HISTORY = 15;
 const MAX_TEXT_FILE = 12000;
@@ -1712,6 +1712,7 @@ if (
             `[WEB SEARCH] Query aktual: ${webData.searchQuery}`
         );
 
+        }
     } catch (webError) {
         console.error(
             '[WEB SEARCH FAILED]',
@@ -1730,13 +1731,42 @@ const history = historyFor(chatId);
         parts: [{ text: h.content }]
     }));
 
-    const parts = [{
-        text: webContext
-            ? `${finalPrompt}
-
 const parts = [{
     text: webContext
         ? `${finalPrompt}
+
+[SISTEM WEB SEARCH]
+
+WEB SEARCH AKTIF.
+
+Gunakan hasil web sebagai evidence utama untuk fakta yang dapat berubah.
+
+Jika hasil web memiliki jawaban yang jelas:
+→ jawab langsung berdasarkan hasil tersebut.
+→ jangan mengaku tidak tahu.
+→ jangan kembali ke tebakan dari memori lama.
+
+Jika pertanyaan meminta jadwal, tanggal, jam, lawan, skor, klasemen, harga, status, berita, atau informasi terkini:
+→ prioritaskan data dari hasil WEB SEARCH.
+
+Jika ada sumber resmi klub, liga, organisasi, sekolah, perusahaan, atau instansi:
+→ prioritaskan sumber resmi tersebut jika relevan.
+
+Jika beberapa sumber memberikan informasi yang sama:
+→ gunakan informasi tersebut secara langsung.
+
+Jika sumber berbeda:
+→ jelaskan perbedaannya secara singkat.
+
+Jika hasil web benar-benar tidak cukup:
+→ katakan data yang ditemukan belum cukup.
+→ jangan mengarang bagian yang kosong.
+
+HASIL WEB:
+
+${webContext}`
+        : finalPrompt
+}];
 
 [SISTEM WEB SEARCH]
 
