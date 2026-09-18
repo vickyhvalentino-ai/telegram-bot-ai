@@ -38,7 +38,15 @@ try {
 // ============================================================
 // KONFIGURASI
 // ============================================================
-const TELEGRAM_BOT_TOKEN = '8876094652:AAHqSmCHlPhBH6AhpbNeiTL83p71sfPr0XQ';
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || 'PASTE_BOT_TOKEN_DI_SINI';
+const PORT = process.env.PORT || 8080;
+const MAX_HISTORY = 15;
+const MAX_TEXT_FILE = 12000;
+
+if (TELEGRAM_BOT_TOKEN === 'PASTE_BOT_TOKEN_DI_SINI') {
+    console.error('❌ TELEGRAM_BOT_TOKEN belum diisi. Set environment variable TELEGRAM_BOT_TOKEN.');
+    process.exit(1);
+}
 
 // ============================================================
 // DATABASE API CONFIG
@@ -1704,7 +1712,6 @@ if (
             `[WEB SEARCH] Query aktual: ${webData.searchQuery}`
         );
 
-        }
     } catch (webError) {
         console.error(
             '[WEB SEARCH FAILED]',
@@ -1723,10 +1730,13 @@ const history = historyFor(chatId);
         parts: [{ text: h.content }]
     }));
 
+    const parts = [{
+        text: webContext
+            ? `${finalPrompt}
+
 const parts = [{
     text: webContext
         ? `${finalPrompt}
-
 
 [SISTEM WEB SEARCH]
 
