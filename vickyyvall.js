@@ -38,7 +38,7 @@ try {
 // ============================================================
 // KONFIGURASI
 // ============================================================
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || 'PASTE_BOT_TOKEN_DI_SINI';
+const TELEGRAM_BOT_TOKEN = process.env.VICKYYVALL || 'PASTE_BOT_TOKEN_DI_SINI';
 const PORT = process.env.PORT || 8080;
 const MAX_HISTORY = 15;
 const MAX_TEXT_FILE = 12000;
