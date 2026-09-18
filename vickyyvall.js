@@ -1669,59 +1669,55 @@ if (
         );
 
         if (
-            !isSearchCached(
-                finalPrompt,
-                searchHistoryContext
-            )
-        ) {
-            stopSearchStatus =
-    await startWebSearchStatusBubble(
-        chatId,
-        replyToId,
-        finalPrompt
+    !isSearchCached(
+        finalPrompt,
+        searchHistoryContext
+    )
+) {
+    stopSearchStatus =
+        await startWebSearchStatusBubble(
+            chatId,
+            replyToId,
+            finalPrompt
+        );
+}
+
+const webData =
+    await searchWeb(
+        finalPrompt,
+        searchHistoryContext
     );
 
-        const webData =
-            await searchWeb(
-                finalPrompt,
-                searchHistoryContext
-            );
+latestWebSearchByChat.set(
+    String(chatId),
+    Array.isArray(webData.results)
+        ? webData.results.slice(0, 10)
+        : []
+);
 
-        latestWebSearchByChat.set(
-            String(chatId),
-            Array.isArray(
-                webData.results
-            )
-                ? webData.results.slice(
-                    0,
-                    10
-                )
-                : []
-        );
+webContext =
+    formatWebResultsForAI(
+        webData
+    );
 
-        webContext =
-            formatWebResultsForAI(
-                webData
-            );
+console.log(
+    `[WEB SEARCH] Provider: ${webData.provider} | Hasil: ${webData.results.length}`
+);
 
-        console.log(
-            `[WEB SEARCH] Provider: ${webData.provider} | Hasil: ${webData.results.length}`
-        );
+console.log(
+    `[WEB SEARCH] Query aktual: ${webData.searchQuery}`
+);
 
-        console.log(
-            `[WEB SEARCH] Query aktual: ${webData.searchQuery}`
-        );
-
-    } catch (webError) {
-        console.error(
-            '[WEB SEARCH FAILED]',
-            webError.message
-        );
-    } finally {
-        if (stopSearchStatus) {
-            stopSearchStatus();
-        }
+} catch (webError) {
+    console.error(
+        '[WEB SEARCH FAILED]',
+        webError.message
+    );
+} finally {
+    if (stopSearchStatus) {
+        stopSearchStatus();
     }
+}
 }
 
 const history = historyFor(chatId);
@@ -1733,10 +1729,6 @@ const history = historyFor(chatId);
     const parts = [{
         text: webContext
             ? `${finalPrompt}
-
-const parts = [{
-    text: webContext
-        ? `${finalPrompt}
 
 [SISTEM WEB SEARCH]
 
