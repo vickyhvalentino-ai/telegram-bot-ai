@@ -38,15 +38,7 @@ try {
 // ============================================================
 // KONFIGURASI
 // ============================================================
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8876094652:AAHqSmCHlPhBH6AhpbNeiTL83p71sfPr0XQ';
-const PORT = process.env.PORT || 8080;
-const MAX_HISTORY = 15;
-const MAX_TEXT_FILE = 12000;
-
-if (TELEGRAM_BOT_TOKEN === '8876094652:AAHqSmCHlPhBH6AhpbNeiTL83p71sfPr0XQ') {
-    console.error('❌ TELEGRAM_BOT_TOKEN belum diisi. Set environment variable TELEGRAM_BOT_TOKEN.');
-    process.exit(1);
-}
+const TELEGRAM_BOT_TOKEN = '8876094652:AAHqSmCHlPhBH6AhpbNeiTL83p71sfPr0XQ';
 
 // ============================================================
 // DATABASE API CONFIG
