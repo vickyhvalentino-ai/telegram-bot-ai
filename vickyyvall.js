@@ -1735,38 +1735,6 @@ const parts = [{
     text: webContext
         ? `${finalPrompt}
 
-[SISTEM WEB SEARCH]
-
-WEB SEARCH AKTIF.
-
-Gunakan hasil web sebagai evidence utama untuk fakta yang dapat berubah.
-
-Jika hasil web memiliki jawaban yang jelas:
-→ jawab langsung berdasarkan hasil tersebut.
-→ jangan mengaku tidak tahu.
-→ jangan kembali ke tebakan dari memori lama.
-
-Jika pertanyaan meminta jadwal, tanggal, jam, lawan, skor, klasemen, harga, status, berita, atau informasi terkini:
-→ prioritaskan data dari hasil WEB SEARCH.
-
-Jika ada sumber resmi klub, liga, organisasi, sekolah, perusahaan, atau instansi:
-→ prioritaskan sumber resmi tersebut jika relevan.
-
-Jika beberapa sumber memberikan informasi yang sama:
-→ gunakan informasi tersebut secara langsung.
-
-Jika sumber berbeda:
-→ jelaskan perbedaannya secara singkat.
-
-Jika hasil web benar-benar tidak cukup:
-→ katakan data yang ditemukan belum cukup.
-→ jangan mengarang bagian yang kosong.
-
-HASIL WEB:
-
-${webContext}`
-        : finalPrompt
-}];
 
 [SISTEM WEB SEARCH]
 
