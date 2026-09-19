@@ -14,6 +14,7 @@ const {
     searchWeb,
     formatWebResultsForAI,
     shouldSearchWeb,
+    shouldShowWebSearchStatus,
     isSearchCached
 } = require('./webSearch');
 
@@ -308,19 +309,18 @@ function normalizeTelegramStructure(text) {
     let inCodeBlock = false;
     let mainPointActive = false;
     let subPointActive = false;
-    let headingJustSeen = false;
-    let pendingBlank = false;
+    let previousWasHeading = false;
 
-    const bulletRegex =
-        /^([•●▪◦‣▸➡️])\s+(.+)$/;
-
-    const numberedRegex =
-        /^(\d+[.)])\s+(.+)$/;
-
-    const standaloneBoldHeading =
+    const headingRegex =
         /^(?:\*\*[^*\n]+\*\*|<b>[^<\n]+<\/b>)$/;
 
-    const pushBlank = () => {
+    const mainPointRegex =
+        /^(\d+)\s*\.\s*(.*)$/;
+
+    const subPointRegex =
+        /^(?:[•●▪◦‣▸➡️\-–—])\s+(.+)$/;
+
+    const pushBlankOnce = () => {
         if (
             output.length &&
             output[output.length - 1] !== ''
@@ -331,118 +331,127 @@ function normalizeTelegramStructure(text) {
 
     for (const rawLine of lines) {
         const trimmed =
-            String(rawLine || '').trim();
+            String(rawLine || '')
+                .replace(/\s+$/g, '')
+                .trim();
 
         if (/^```/.test(trimmed)) {
-            if (pendingBlank) {
-                pushBlank();
-                pendingBlank = false;
-            }
-
             inCodeBlock =
                 !inCodeBlock;
 
-            output.push(rawLine);
+            output.push(
+                rawLine.replace(/\s+$/g, '')
+            );
+
             mainPointActive = false;
             subPointActive = false;
-            headingJustSeen = false;
+            previousWasHeading = false;
 
             continue;
         }
 
         if (inCodeBlock) {
-            output.push(rawLine);
+            output.push(
+                rawLine.replace(/\s+$/g, '')
+            );
             continue;
         }
 
         if (!trimmed) {
-            pendingBlank = true;
             continue;
         }
 
-        if (standaloneBoldHeading.test(trimmed)) {
+        if (/^>{2,}\s*$/.test(trimmed)) {
+            continue;
+        }
+
+        if (headingRegex.test(trimmed)) {
             if (output.length) {
-                pushBlank();
+                pushBlankOnce();
             }
 
             output.push(trimmed);
 
             mainPointActive = false;
             subPointActive = false;
-            headingJustSeen = true;
-            pendingBlank = false;
+            previousWasHeading = true;
 
             continue;
         }
 
-        const numbered =
-            trimmed.match(numberedRegex);
+        const mainPoint =
+            trimmed.match(mainPointRegex);
 
-        if (numbered) {
+        if (mainPoint) {
             if (
                 output.length &&
-                !headingJustSeen
+                !previousWasHeading
             ) {
-                pushBlank();
+                pushBlankOnce();
             }
 
             output.push(
-                `${numbered[1]} ${numbered[2].trim()}`
+                `${mainPoint[1]}. ${mainPoint[2].trim()}`
             );
 
             mainPointActive = true;
             subPointActive = false;
-            headingJustSeen = false;
-            pendingBlank = false;
+            previousWasHeading = false;
 
             continue;
         }
 
-        const bullet =
-            trimmed.match(bulletRegex);
+        const subPoint =
+            trimmed.match(subPointRegex);
 
-        if (bullet) {
+        if (
+            subPoint &&
+            (
+                mainPointActive ||
+                subPointActive
+            )
+        ) {
             output.push(
-                `${NBSP.repeat(4)}${bullet[1]} ${bullet[2].trim()}`
+                `${NBSP.repeat(10)}– ${subPoint[1].trim()}`
             );
 
             subPointActive = true;
-            headingJustSeen = false;
-            pendingBlank = false;
+            previousWasHeading = false;
 
             continue;
         }
 
         if (subPointActive) {
             output.push(
-                `${NBSP.repeat(7)}${trimmed}`
+                `${NBSP.repeat(14)}${trimmed}`
             );
+
+            previousWasHeading = false;
 
             continue;
         }
 
         if (mainPointActive) {
             output.push(
-                `${NBSP.repeat(7)}${trimmed}`
+                `${NBSP.repeat(6)}${trimmed}`
             );
+
+            previousWasHeading = false;
 
             continue;
         }
 
-        if (pendingBlank) {
-            pushBlank();
-            pendingBlank = false;
-        }
-
         output.push(trimmed);
 
-        headingJustSeen = false;
+        mainPointActive = false;
+        subPointActive = false;
+        previousWasHeading = false;
     }
 
     return output
         .join('\n')
         .replace(/\n{3,}/g, '\n\n')
-        .trim();
+        .trimEnd();
 }
 // ============================================================
 // AUTO CONVERT MARKDOWN TO TELEGRAM HTML & SANITIZER
@@ -479,7 +488,7 @@ function convertMarkdownToHTML(text) {
     });
 
     // MARKDOWN BIASA
-    formatted = formatted.replace(/^\s*\*\s+/gm, '- ');
+    formatted = formatted.replace(/^\s*\*\s+/gm, '– ');
     formatted = formatted.replace(/\*\*([\s\S]*?)\*\*/g, '<b>$1</b>');
     formatted = formatted.replace(/\*([^*\n]+)\*/g, '<i>$1</i>');
     formatted = formatted.replace(/[\uFFFD]/g, '•');
@@ -1994,13 +2003,89 @@ const cleanSearchIntent = String(finalPrompt)
     .replace(/\s+/g, ' ')
     .trim();
 
-if (
+const needsWebSearch =
     !base64Media &&
     shouldSearchWeb(
         cleanSearchIntent,
         searchHistoryContext
-    )
-) {
+    );
+
+const showWebSearchStatus =
+    needsWebSearch &&
+    shouldShowWebSearchStatus(
+        cleanSearchIntent,
+        searchHistoryContext
+    );
+
+if (needsWebSearch) {
+    let stopSearchStatus = null;
+
+    try {
+        console.log(
+            `[WEB SEARCH] Query user: ${cleanSearchIntent.slice(0, 200)}`
+        );
+
+        console.log(
+            `[WEB SEARCH] Context: ${String(searchHistoryContext).slice(0, 500)}`
+        );
+
+        if (
+            !isSearchCached(
+                cleanSearchIntent,
+                searchHistoryContext
+            )
+        ) {
+
+            if (showWebSearchStatus) {
+                stopSearchStatus =
+                    await startWebSearchStatusBubble(
+                        chatId,
+                        replyToId,
+                        cleanSearchIntent
+                    );
+            }
+
+            const webData =
+                await searchWeb(
+                    cleanSearchIntent,
+                    searchHistoryContext
+                );
+
+            latestWebSearchByChat.set(
+                String(chatId),
+                Array.isArray(webData.results)
+                    ? webData.results.slice(0, 10)
+                    : []
+            );
+
+            webContext =
+                formatWebResultsForAI(
+                    webData
+                );
+
+            console.log(
+                `[WEB SEARCH] Provider: ${webData.provider} | Hasil: ${webData.results.length}`
+            );
+
+            console.log(
+                `[WEB SEARCH] Query aktual: ${webData.searchQuery}`
+            );
+        }
+
+    } catch (webError) {
+
+        console.error(
+            '[WEB SEARCH FAILED]',
+            webError.message
+        );
+
+    } finally {
+
+        if (stopSearchStatus) {
+            stopSearchStatus();
+        }
+    }
+}
     let stopSearchStatus = null;
 
     try {
@@ -2091,7 +2176,7 @@ WAJIB:
 - Pertahankan urutan hasil WEB SEARCH.
 - Jangan mengarang poin.
 - Jika poin tersedia, gunakan:
-1️⃣ Nama Tim • (42) Point.
+1️⃣ Nama Tim 🏆 • (42) Point.
 - Jika poin tidak tersedia, gunakan:
 1️⃣ Nama Tim
 - Gunakan blockquote untuk seluruh daftar ranking.
@@ -2418,6 +2503,25 @@ async function processAIResponse(
 	
     let text = String(rawResponse || '').trim();
 text = stripInternalLeakage(text);
+text = text
+    .replace(
+        /<<<BUTTONS:[\s\S]*?>>>/gi,
+        ''
+    )
+    .replace(
+        /^\s*>{2,}\s*$/gm,
+        ''
+    )
+    .replace(
+        /\s+$/gm,
+        ''
+    )
+    .replace(
+        /\n{3,}/g,
+        '\n\n'
+    )
+    .trimEnd();
+    
 text = text
     .replace(/^\s*>{2,}\s*$/gm, '')
     .replace(/\n{3,}/g, '\n\n')
