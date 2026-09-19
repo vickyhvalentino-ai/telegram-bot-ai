@@ -567,29 +567,89 @@ async function sendReply(bot, chatId, text, extra = {}) {
 
     let safeText = String(text).trim();
 
-    // ============================================================
-    // 🔒 MUTLAK 1 GELEMBUNG TELEGRAM
-    // Maksimum dibuat sedikit di bawah batas Telegram
-    // agar tidak pernah masuk sistem split menjadi beberapa pesan.
-    // ============================================================
     const MAX_ONE_BUBBLE = 3500;
 
     if (safeText.length > MAX_ONE_BUBBLE) {
-        let cut = safeText.lastIndexOf('\n', MAX_ONE_BUBBLE);
+        let cut =
+            safeText.lastIndexOf(
+                '\n',
+                MAX_ONE_BUBBLE
+            );
 
         if (cut < 1000) {
             cut = MAX_ONE_BUBBLE;
         }
 
-        safeText = safeText.slice(0, cut).trimEnd();
+        safeText =
+            safeText
+                .slice(0, cut)
+                .trimEnd();
 
         safeText += '\n\n…';
     }
 
-const structuredText =
-    normalizeTelegramStructure(safeText);
-const htmlText =
-    convertMarkdownToHTML(structuredText);
+    const structuredText =
+        normalizeTelegramStructure(
+            safeText
+        );
+
+    const htmlText =
+        convertMarkdownToHTML(
+            structuredText
+        );
+
+    const sendExtra = {
+        ...extra
+    };
+
+    if (
+        sendExtra.reply_markup &&
+        Array.isArray(
+            sendExtra.reply_markup.inline_keyboard
+        )
+    ) {
+        const keyboard =
+            sendExtra
+                .reply_markup
+                .inline_keyboard;
+
+        const fixedKeyboard = [];
+
+        for (const row of keyboard) {
+            if (Array.isArray(row)) {
+                const validButtons =
+                    row.filter(button =>
+                        button &&
+                        typeof button === 'object' &&
+                        typeof button.text === 'string'
+                    );
+
+                if (validButtons.length) {
+                    fixedKeyboard.push(
+                        validButtons
+                    );
+                }
+
+                continue;
+            }
+
+            if (
+                row &&
+                typeof row === 'object' &&
+                typeof row.text === 'string'
+            ) {
+                fixedKeyboard.push([
+                    row
+                ]);
+            }
+        }
+
+        sendExtra.reply_markup = {
+            ...sendExtra.reply_markup,
+            inline_keyboard:
+                fixedKeyboard
+        };
+    }
 
     try {
         await bot.sendMessage(
@@ -597,7 +657,7 @@ const htmlText =
             htmlText,
             {
                 parse_mode: 'HTML',
-                ...extra
+                ...sendExtra
             }
         );
     } catch (error) {
@@ -606,17 +666,24 @@ const htmlText =
             error.message
         );
 
-        const plainText = htmlText
-            .replace(/<[^>]*>?/gm, '')
-            .slice(0, MAX_ONE_BUBBLE)
-            .trim();
+        const plainText =
+            htmlText
+                .replace(
+                    /<[^>]*>?/gm,
+                    ''
+                )
+                .slice(
+                    0,
+                    MAX_ONE_BUBBLE
+                )
+                .trim();
 
         try {
             await bot.sendMessage(
                 chatId,
                 plainText,
                 {
-                    ...extra,
+                    ...sendExtra,
                     parse_mode: undefined
                 }
             );
@@ -2977,70 +3044,56 @@ if (
             .slice(0, 42);
 
     const fallbackButtons = [
-        {
-            text: '🧠 Bahas lebih lanjut',
-            callback_data:
-                `ask|bahas lebih lanjut tentang ${cleanTopic}`
-        },
-        {
-            text: '💡 Kasih contoh',
-            callback_data:
-                `ask|kasih contoh yang relevan dengan ${cleanTopic}`
-        },
-        {
-            text: '🔎 Cek detail',
-            callback_data:
-                `ask|jelaskan detail penting tentang ${cleanTopic}`
-        }
-    ];
+    {
+        text: '🧠 Bahas lebih lanjut',
+        callback_data:
+            `ask|bahas lebih lanjut tentang ${cleanTopic}`
+    },
+    {
+        text: '💡 Kasih contoh',
+        callback_data:
+            `ask|kasih contoh yang relevan dengan ${cleanTopic}`
+    },
+    {
+        text: '🔎 Cek detail',
+        callback_data:
+            `ask|jelaskan detail penting tentang ${cleanTopic}`
+    }
+];
 
-    while (inline_keyboard.length < 2) {
-        const nextButton =
-            fallbackButtons[inline_keyboard.length];
+const existingButtons =
+    inline_keyboard
+        .flat()
+        .filter(button =>
+            button &&
+            typeof button === 'object' &&
+            typeof button.text === 'string'
+        );
 
-        if (!nextButton) break;
+for (const nextButton of fallbackButtons) {
+    if (existingButtons.length >= 3) {
+        break;
+    }
 
-        inline_keyboard.push(
+    const duplicate =
+        existingButtons.some(button =>
+            button.callback_data ===
+                nextButton.callback_data ||
+            button.url ===
+                nextButton.url
+        );
+
+    if (!duplicate) {
+        existingButtons.push(
             nextButton
         );
     }
-
-    inline_keyboard =
-        inline_keyboard.slice(0, 3);
 }
 
-if (!text && !imageToSent && !fileToSend) {
-    text = '😭 AI nggak menghasilkan jawaban kali ini.';
-}
-
-    // Kirim Media
-    if (imageToSent) {
-        try {
-            await bot.sendPhoto(chatId, imageToSent);
-        } catch (e) {
-            console.error('[GAMBAR CHAT GAGAL]', e.message);
-        }
-    }
-
-    if (fileToSend) {
-        try {
-            const fileBuffer = Buffer.from(fileToSend.content, 'utf8');
-            await bot.sendDocument(chatId, fileBuffer, {}, { filename: fileToSend.name, contentType: 'text/plain' });
-        } catch (e) {
-            console.error('[FILE SEND ERROR]', e.message);
-        }
-    }
-
-    // Kirim Teks + Tombol
-    let extraOptions = replyOptions && typeof replyOptions === 'object'
-    ? { ...replyOptions }
-    : { reply_to_message_id: replyToId };
-
-if (inline_keyboard.length > 0) {
-    extraOptions.reply_markup = {
-        inline_keyboard
-    };
-}
+inline_keyboard =
+    existingButtons.length > 0
+        ? [existingButtons.slice(0, 3)]
+        : [];
 
 await sendReply(
     bot,
