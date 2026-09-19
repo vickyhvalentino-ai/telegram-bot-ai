@@ -256,11 +256,6 @@ const aiMutedChats = new Set();
 const latestWebSearchByChat = new Map();
 
 // ============================================================
-// 🔒 AI BUTTON ANTI-SPAM
-// ============================================================
-const usedAIButtons = new Set();
-
-// ============================================================
 // 🧠 AI RESPONSE ANTI-SPAM
 // ============================================================
 const aiBusyChats = new Set();
@@ -306,10 +301,14 @@ function normalizeTelegramStructure(text) {
     const output = [];
     const NBSP = '\u00A0';
 
+    const SUB_INDENT = NBSP.repeat(4);
+    const SUB_MAX_CHARS = 44;
+
     let inCodeBlock = false;
     let mainPointActive = false;
     let subPointActive = false;
     let previousWasHeading = false;
+    let pendingBlank = false;
 
     const headingRegex =
         /^(?:\*\*[^*\n]+\*\*|<b>[^<\n]+<\/b>)$/;
@@ -318,7 +317,7 @@ function normalizeTelegramStructure(text) {
         /^(\d+)\s*\.\s*(.*)$/;
 
     const subPointRegex =
-        /^(?:[•●▪◦‣▸➡️\-–—])\s+(.+)$/;
+        /^(?:[–—-])\s*(.+)$/;
 
     const pushBlankOnce = () => {
         if (
@@ -327,6 +326,97 @@ function normalizeTelegramStructure(text) {
         ) {
             output.push('');
         }
+    };
+
+    const wrapSubPoint = value => {
+        const clean = String(value || '')
+            .replace(/\s+/g, ' ')
+            .trim();
+
+        if (!clean) return '';
+
+        const words = clean.split(' ');
+        const wrapped = [];
+
+        let current = '';
+
+        for (const word of words) {
+            const candidate =
+                current
+                    ? `${current} ${word}`
+                    : word;
+
+            if (
+                current &&
+                candidate.length > SUB_MAX_CHARS
+            ) {
+                wrapped.push(
+                    `${SUB_INDENT}${current}`
+                );
+
+                current = word;
+            } else {
+                current = candidate;
+            }
+        }
+
+        if (current) {
+            wrapped.push(
+                `${SUB_INDENT}${current}`
+            );
+        }
+
+        if (!wrapped.length) {
+            return '';
+        }
+
+        wrapped[0] =
+            `${SUB_INDENT}– ${wrapped[0].slice(SUB_INDENT.length)}`;
+
+        return wrapped.join('\n');
+    };
+
+    const appendNaturalContinuation = value => {
+        const clean =
+            String(value || '')
+                .replace(/\s+/g, ' ')
+                .trim();
+
+        if (!clean) return;
+
+        if (
+            !output.length ||
+            output[output.length - 1] === ''
+        ) {
+            output.push(clean);
+            return;
+        }
+
+        if (subPointActive) {
+            const last =
+                output[output.length - 1];
+
+            const cleanLast =
+                String(last)
+                    .split('\n')
+                    .map(part =>
+                        part
+                            .replace(/^\s*[–—-]\s*/, '')
+                            .trim()
+                    )
+                    .filter(Boolean)
+                    .join(' ');
+
+            output[output.length - 1] =
+                wrapSubPoint(
+                    `${cleanLast} ${clean}`
+                );
+
+            return;
+        }
+
+        output[output.length - 1] =
+            `${output[output.length - 1]} ${clean}`;
     };
 
     for (const rawLine of lines) {
@@ -346,6 +436,7 @@ function normalizeTelegramStructure(text) {
             mainPointActive = false;
             subPointActive = false;
             previousWasHeading = false;
+            pendingBlank = false;
 
             continue;
         }
@@ -354,10 +445,12 @@ function normalizeTelegramStructure(text) {
             output.push(
                 rawLine.replace(/\s+$/g, '')
             );
+
             continue;
         }
 
         if (!trimmed) {
+            pendingBlank = true;
             continue;
         }
 
@@ -375,6 +468,7 @@ function normalizeTelegramStructure(text) {
             mainPointActive = false;
             subPointActive = false;
             previousWasHeading = true;
+            pendingBlank = false;
 
             continue;
         }
@@ -397,6 +491,7 @@ function normalizeTelegramStructure(text) {
             mainPointActive = true;
             subPointActive = false;
             previousWasHeading = false;
+            pendingBlank = false;
 
             continue;
         }
@@ -411,34 +506,48 @@ function normalizeTelegramStructure(text) {
                 subPointActive
             )
         ) {
-            output.push(
-                `${NBSP.repeat(10)}– ${subPoint[1].trim()}`
-            );
+            const formattedSubPoint =
+                wrapSubPoint(
+                    subPoint[1].trim()
+                );
+
+            if (formattedSubPoint) {
+                output.push(
+                    formattedSubPoint
+                );
+            }
 
             subPointActive = true;
             previousWasHeading = false;
+            pendingBlank = false;
 
             continue;
         }
 
         if (subPointActive) {
-            output.push(
-                `${NBSP.repeat(14)}${trimmed}`
+            appendNaturalContinuation(
+                trimmed
             );
 
             previousWasHeading = false;
+            pendingBlank = false;
 
             continue;
         }
 
         if (mainPointActive) {
-            output.push(
-                `${NBSP.repeat(6)}${trimmed}`
+            appendNaturalContinuation(
+                trimmed
             );
 
             previousWasHeading = false;
+            pendingBlank = false;
 
             continue;
+        }
+
+        if (pendingBlank) {
+            pushBlankOnce();
         }
 
         output.push(trimmed);
@@ -446,6 +555,7 @@ function normalizeTelegramStructure(text) {
         mainPointActive = false;
         subPointActive = false;
         previousWasHeading = false;
+        pendingBlank = false;
     }
 
     return output
@@ -453,6 +563,7 @@ function normalizeTelegramStructure(text) {
         .replace(/\n{3,}/g, '\n\n')
         .trimEnd();
 }
+
 // ============================================================
 // AUTO CONVERT MARKDOWN TO TELEGRAM HTML & SANITIZER
 // ============================================================
@@ -1834,23 +1945,10 @@ async function startWebSearchStatusBubble(
         [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
     }
 
-    const getTopicDuration = () => {
-        const roll = Math.random();
-
-        if (roll < 0.42) {
-            return Math.floor(Math.random() * 301) + 350;
-        }
-
-        if (roll < 0.72) {
-            return Math.floor(Math.random() * 401) + 550;
-        }
-
-        if (roll < 0.92) {
-            return Math.floor(Math.random() * 501) + 950;
-        }
-
-        return Math.floor(Math.random() * 1001) + 1700;
-    };
+    const getTopicDuration = () =>
+    Math.floor(
+        Math.random() * 201
+    ) + 300;
 
     const editStatus = async () => {
         if (
@@ -1905,11 +2003,11 @@ async function startWebSearchStatusBubble(
         mode = 'searching';
 
         stageEndsAt =
-            Date.now() +
-            Math.floor(
-                Math.random() * 1601
-            ) +
-            900;
+    Date.now() +
+    Math.floor(
+        Math.random() * 3000
+    ) +
+    1; 
 
         const loop = async () => {
             while (!stopped) {
@@ -1938,7 +2036,7 @@ async function startWebSearchStatusBubble(
 
                 await editStatus();
 
-                await waitOrStop(500);
+                await waitOrStop(300);
             }
         };
 
@@ -2939,25 +3037,11 @@ if (!action) {
 const buttonMessageId =
     query.message?.message_id;
 
-const buttonKey =
-    `${chatId}:${buttonMessageId}:${data}`;
-
 if (!buttonMessageId) {
     await bot.answerCallbackQuery(
         query.id,
         {
             text: 'Tombol ini sudah tidak aktif.',
-            show_alert: false
-        }
-    );
-    return;
-}
-
-if (usedAIButtons.has(buttonKey)) {
-    await bot.answerCallbackQuery(
-        query.id,
-        {
-            text: 'Tombol ini sudah diproses.',
             show_alert: false
         }
     );
@@ -2975,19 +3059,6 @@ if (aiBusyChats.has(chatId)) {
     return;
 }
 
-usedAIButtons.add(buttonKey);
-
-const lockTimer = setTimeout(
-    () => usedAIButtons.delete(buttonKey),
-    24 * 60 * 60 * 1000
-);
-
-if (
-    typeof lockTimer.unref === 'function'
-) {
-    lockTimer.unref();
-}
-
 aiBusyChats.add(chatId);
 
 await bot.answerCallbackQuery(
@@ -2999,42 +3070,6 @@ await bot.answerCallbackQuery(
 );
 
 try {
-
-    try {
-        const currentKeyboard =
-            query.message?.reply_markup?.inline_keyboard || [];
-
-        const updatedKeyboard =
-            currentKeyboard
-                .map(row =>
-                    row.filter(
-                        button =>
-                            button.callback_data !== data
-                    )
-                )
-                .filter(row => row.length > 0);
-
-        await bot.editMessageReplyMarkup(
-            updatedKeyboard.length
-                ? {
-                    inline_keyboard:
-                        updatedKeyboard
-                }
-                : {
-                    inline_keyboard: []
-                },
-            {
-                chat_id: chatId,
-                message_id: buttonMessageId
-            }
-        );
-
-    } catch (e) {
-        console.error(
-            '[AI BUTTON REMOVE ERROR]',
-            e.message
-        );
-    }
 
     const finalPrompt =
         `[INFO SISTEM: Pengguna menekan tombol interaktif.]\n` +
@@ -3215,25 +3250,32 @@ try {
     `Judul berdiri sendiri lalu langsung lanjut ke main point pada baris berikutnya. ` +
     `JANGAN membuat baris kosong setelah judul. ` +
     `Main point boleh menggunakan nomor 1., 2., 3. dan tetap rata kiri. ` +
-    `Penjelasan lanjutan main point wajib sedikit masuk. ` +
-    `Sub-point hanya gunakan jika memang ada sub-point; jangan membuat • untuk setiap kalimat. ` +
-    `Sub-point wajib memiliki indentasi/spasi. ` +
-    `Baris lanjutan sub-point wajib tetap masuk dan tidak boleh kembali ke kiri. ` +
+    `Sub-point hanya gunakan jika memang ada sub-point. ` +
+    `Sub-point WAJIB menggunakan simbol –. ` +
+    `Tidak ada batas jumlah sub-point dalam satu main point jika memang semuanya relevan. ` +
+    `Jangan membuat – pada setiap kalimat. ` +
+    `Sub-point adalah satu paragraf logis. ` +
+    `Jangan mengatur wrapping menggunakan spasi manual. ` +
+    `Jangan memecah satu sub-point menjadi beberapa paragraf hanya karena panjang. ` +
+    `Backend akan menangani hanging indent agar baris lanjutan sub-point tetap masuk dan tidak jatuh ke margin kiri. ` +
+    `Gunakan ENTER hanya untuk main point baru, sub-point baru, judul baru, atau pergantian bait yang benar-benar diperlukan. ` +
     `Setelah main point selesai, gunakan tepat 1 baris kosong sebelum main point berikutnya. ` +
     `Jangan gunakan 2 baris kosong. ` +
-    `Awal main point/sub-point sebaiknya memiliki kata penting yang BOLD. ` +
+    `Awal main point atau sub-point sebaiknya memiliki kata penting yang BOLD. ` +
     `Jangan menampilkan marker internal, simbol >>, atau marker backend.]`;
             const aiButtonCount =
-    Math.random() < 0.5
+    Math.random() < 0.55
         ? 2
         : 3;
 
 const buttonReminder =
-    `[INFO SISTEM: Jika tombol rekomendasi benar-benar berguna untuk melanjutkan percakapan, ` +
-    `buat tepat ${aiButtonCount} tombol. ` +
-    `AI sendiri yang menentukan teks tombol, emoji, callback_data, dan topiknya ` +
-    `berdasarkan konteks percakapan terbaru. ` +
-    `Jika tombol tidak benar-benar berguna, jangan membuat tombol.]`;
+    `[INFO SISTEM: Tentukan sendiri apakah keyboard akan membantu user. ` +
+    `Untuk pertanyaan yang punya lanjutan jelas, BUAT tepat ${aiButtonCount} tombol. ` +
+    `Untuk obrolan yang kosong, gabut, bosen, random, atau user terlihat ingin ditemani ngobrol, ` +
+    `AI BOLEH dan dianjurkan membuat tepat 2 tombol yang terasa relate meskipun belum ada tugas spesifik. ` +
+    `AI sendiri yang menentukan teks tombol, emoji, callback_data, URL, dan topiknya berdasarkan konteks terbaru. ` +
+    `Jangan membuat tombol generik yang terasa dipaksakan. ` +
+    `Jika tombol benar-benar tidak membantu, jangan membuat tombol.]`;
 
 const finalPrompt = `${currentTimeInstruction}\n${userStatusInstruction}\n${formatReminder}\n${buttonReminder}\n\n${mediaResult.finalPrompt}`;
             response = await askAI(chatId, finalPrompt, mediaResult.base64Media, mediaResult.mimeTypeMedia, msg.message_id);
