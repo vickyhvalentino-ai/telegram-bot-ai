@@ -778,33 +778,49 @@ function buildMenuCommandTable() {
             item => !item.owner
         );
 
-    const width = 30;
+    const commandWidth = 28;
 
-    const row =
-        item =>
-            `│ ${item.command.padEnd(width, ' ')} › ${item.description}`;
+    const makeRow =
+        item => {
+            const command =
+                String(item.command || '')
+                    .padEnd(
+                        commandWidth,
+                        ' '
+                    );
+
+            return (
+                `│ ${command} → ${item.description}`
+            );
+        };
 
     return [
-        '╭────────────────────────────────────────────',
-        ...owner.map(row),
-        '├────────────────────────────────────────────',
-        ...user.map(row),
-        '╰────────────────────────────────────────────'
+        '┌──────────────────────────────────────────────',
+        '│ OWNER',
+        '├──────────────────────────────────────────────',
+        ...owner.map(makeRow),
+        '├──────────────────────────────────────────────',
+        '│ USER',
+        '├──────────────────────────────────────────────',
+        ...user.map(makeRow),
+        '└──────────────────────────────────────────────'
     ].join('\n');
 }
 
 function buildMenuText() {
+    const table =
+        buildMenuCommandTable();
+
     return (
         `<b>COMMAND CENTER</b>\n\n` +
 
-        `<pre>${buildMenuCommandTable()}</pre>\n` +
+        `<code>${table}</code>\n` +
 
-        `<blockquote>` +
+         `<blockquote>` +
         `<b>FUNGSI</b>\n` +
         `Semua command utama dikumpulkan di sini biar akses bot rapi dan gampang dicari. ` +
-        `Tombol di bawah adalah rekomendasi aktivitas yang dipilih secara acak.` +
-        `</blockquote>` +
-
+        `Tombol di bawah adalah rekomendasi aktivitas yang dipilih secara acak sesuai fitur yang tersedia.` +
+        `</blockquote>\n\n` + 
         `<blockquote>` +
         `<b>OWNER</b>\n` +
         `Command owner tetap ditampilkan supaya struktur sistem bisa dilihat semua user, ` +
@@ -812,6 +828,7 @@ function buildMenuText() {
         `</blockquote>`
     );
 }
+
 
 async function sendCommandMenu(
     chatId,
@@ -2418,9 +2435,6 @@ async function processAIResponse(
 // ============================================================
 // FIX BUTTON AM PREM + AI-GENERATED BUTTONS
 // ============================================================
-
-// AM PREM hanya dipicu jika pesan user memang membahas Alight Motion.
-// Backend memaksa gambar + tombol agar AI tidak bisa lupa.
 if (isAlightMotionTopic(sourcePrompt)) {
     imageToSent = AM_PREM_IMAGE_URL;
     inline_keyboard = buildAMPremButtons();
@@ -2600,55 +2614,127 @@ const finalReplyOptions = {
     reply_to_message_id: replyToId
 };
 
-// Jangan pernah mengirim reply_markup kosong.
-// Kalau ada tombol, kirim maksimal 3 tombol.
+function normalizeInlineKeyboard(source) {
+    if (!Array.isArray(source) || source.length === 0) {
+        return [];
+    }
+
+    const rows =
+        Array.isArray(source[0])
+            ? source
+            : [source];
+
+    const cleanRows = [];
+
+    for (const row of rows) {
+        if (!Array.isArray(row)) {
+            continue;
+        }
+
+        const cleanRow = [];
+
+        for (const button of row) {
+            if (
+                !button ||
+                typeof button !== 'object'
+            ) {
+                continue;
+            }
+
+            const btnText =
+                String(button.text || '')
+                    .trim();
+
+            if (!btnText) {
+                continue;
+            }
+
+            const cleanButton = {
+                text: btnText
+            };
+
+            if (
+                button.callback_data &&
+                String(button.callback_data)
+                    .startsWith('ask|')
+            ) {
+                cleanButton.callback_data =
+                    String(button.callback_data)
+                        .slice(0, 64);
+            }
+
+            if (
+                button.url &&
+                /^https?:\/\/\S+$/i.test(
+                    String(button.url)
+                )
+            ) {
+                cleanButton.url =
+                    String(button.url).trim();
+            }
+
+            // Button callback ATAU URL.
+            // Jangan kirim button tanpa action.
+            if (
+                cleanButton.callback_data ||
+                cleanButton.url
+            ) {
+                cleanRow.push(cleanButton);
+            }
+
+            // Maksimal 3 tombol TOTAL.
+            if (
+                cleanRows.flat().length +
+                cleanRow.length >= 3
+            ) {
+                break;
+            }
+        }
+
+        if (cleanRow.length) {
+            cleanRows.push(
+                cleanRow.slice(
+                    0,
+                    Math.max(
+                        0,
+                        3 - cleanRows.flat().length
+                    )
+                )
+            );
+        }
+
+        if (
+            cleanRows.flat().length >= 3
+        ) {
+            break;
+        }
+    }
+
+    return cleanRows;
+}
+
+const normalizedKeyboard =
+    normalizeInlineKeyboard(
+        inline_keyboard
+    );
+
 if (
-    Array.isArray(inline_keyboard) &&
-    inline_keyboard.length > 0
+    normalizedKeyboard.length > 0
 ) {
     finalReplyOptions.reply_markup = {
-        inline_keyboard: inline_keyboard
-            .flat()
-            .filter(button =>
-                button &&
-                typeof button === 'object' &&
-                typeof button.text === 'string' &&
-                button.text.trim()
-            )
-            .slice(0, 3)
-            .map(button => {
-                const cleanButton = {
-                    text: String(button.text).trim()
-                };
-
-                if (
-                    button.callback_data &&
-                    String(button.callback_data).startsWith('ask|')
-                ) {
-                    cleanButton.callback_data =
-                        String(button.callback_data).slice(0, 64);
-                }
-
-                if (
-                    button.url &&
-                    /^https?:\/\/\S+$/i.test(String(button.url))
-                ) {
-                    cleanButton.url =
-                        String(button.url).trim();
-                }
-
-                return cleanButton;
-            })
+        inline_keyboard:
+            normalizedKeyboard
     };
-
-    // Kalau setelah dibersihkan ternyata kosong,
-    // jangan kirim keyboard kosong.
-    if (
-        !finalReplyOptions.reply_markup.inline_keyboard.length
-    ) {
-        delete finalReplyOptions.reply_markup;
-    }
+} else {
+    delete finalReplyOptions.reply_markup;
 }
+
+await sendReply(
+    bot,
+    chatId,
+    text,
+    finalReplyOptions
+);
 
 await sendReply(
     bot,
