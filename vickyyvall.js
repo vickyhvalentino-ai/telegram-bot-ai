@@ -576,7 +576,7 @@ const MENU_COMMAND_ROWS = [
     },
     {
         command: '/addlimit @username jumlah',
-        description: 'tambah bonus limit user',
+        description: 'gift limit',
         owner: true
     },
 
@@ -783,15 +783,15 @@ function buildMenuCommandTable() {
             `│ ${item.command} » ${item.description}`;
 
     return [
-        '╭────────────────────────╮',
+        '╭────────────────────╮',
         '│ OWNER                            │',
-        '├────────────────────────┤',
+        '├────────────────────┤',
         ...owner.map(makeRow),
-        '├────────────────────────┤',
+        '├────────────────────┤',
         '│ USER                             │',
-        '├────────────────────────┤',
+        '├────────────────────┤',
         ...user.map(makeRow),
-        '╰────────────────────────╯'
+        '╰────────────────────╯'
     ].join('\n');
 }
 
@@ -2386,9 +2386,14 @@ async function processAIResponse(
 
 let inline_keyboard = [];
 
-function compactButtonLabel(value) {
-    const raw =
+function compactButtonLabel(
+    value,
+    maxWords = 3
+) {
+    let raw =
         String(value || '')
+            .replace(/\*\*/g, '')
+            .replace(/<[^>]+>/g, '')
             .replace(/\s+/g, ' ')
             .trim();
 
@@ -2411,7 +2416,7 @@ function compactButtonLabel(value) {
         body
             .split(/\s+/)
             .filter(Boolean)
-            .slice(0, 3);
+            .slice(0, maxWords);
 
     if (!words.length) {
         return prefix.trim();
@@ -2421,6 +2426,48 @@ function compactButtonLabel(value) {
         `${prefix ? prefix + ' ' : ''}` +
         words.join(' ')
     ).trim();
+}
+
+function toUnicodeBold(value) {
+    return String(value || '')
+        .split('')
+        .map(char => {
+            const code =
+                char.charCodeAt(0);
+
+            if (
+                code >= 65 &&
+                code <= 90
+            ) {
+                return String.fromCodePoint(
+                    0x1D400 +
+                    (code - 65)
+                );
+            }
+
+            if (
+                code >= 97 &&
+                code <= 122
+            ) {
+                return String.fromCodePoint(
+                    0x1D41A +
+                    (code - 97)
+                );
+            }
+
+            if (
+                code >= 48 &&
+                code <= 57
+            ) {
+                return String.fromCodePoint(
+                    0x1D7CE +
+                    (code - 48)
+                );
+            }
+
+            return char;
+        })
+        .join('');
 }
 
 function extractTopicWords(source) {
@@ -2563,15 +2610,24 @@ if (btnMatch) {
                     continue;
                 }
 
-                const btnText =
-                    compactButtonLabel(
-                        original.text
-                    );
-
                 const url =
-                    String(
-                        original.url || ''
-                    ).trim();
+    String(
+        original.url || ''
+    ).trim();
+
+const isLinkButton =
+    /^https?:\/\/\S+$/i.test(url);
+
+const btnText =
+    compactButtonLabel(
+        original.text,
+        isLinkButton ? 5 : 3
+    );
+
+const visibleButtonText =
+    isLinkButton
+        ? toUnicodeBold(btnText)
+        : btnText;
 
                 const callbackData =
                     String(
@@ -2640,23 +2696,23 @@ if (btnMatch) {
                     /^https?:\/\/\S+$/i.test(url)
                 ) {
                     validButtons.push({
-                        text: btnText,
-                        url
-                    });
-                }
+    text: visibleButtonText,
+    url
+});
+  }
 
-                if (
-                    validButtons.length >= 3
+                  if (
+                 validButtons.length >= 5
                 ) {
-                    break;
+                 break;
                 }
             }
         }
 
         if (validButtons.length > 0) {
             inline_keyboard = [
-                validButtons.slice(0, 3)
-            ];
+            validButtons.slice(0, 5)
+             ];
         }
     } catch (error) {
         console.error(
@@ -2737,33 +2793,45 @@ function buildContextButtons(
             .replace(/\s+/g, ' ')
             .trim();
 
+    const answer =
+        String(answerText || '')
+            .trim();
+
     if (!rawSource) {
         return [];
     }
 
-    const sourceLower =
-        rawSource.toLowerCase();
+    const sourceWords =
+        extractTopicWords(rawSource);
 
-    const topicWords =
-        extractTopicWords(
-            `${rawSource} ${String(answerText || '').slice(0, 1200)}`
-        );
+    const answerWords =
+        extractTopicWords(answer.slice(0, 1200));
+
+    const topicWords = [
+        ...new Set([
+            ...sourceWords,
+            ...answerWords
+        ])
+    ];
 
     if (!topicWords.length) {
         return [];
     }
 
-    /*
-     * Ambil maksimum 3 anchor penting.
-     *
-     * Prioritas:
-     * - kata yang muncul sebagai topik nyata
-     * - nama/orang
-     * - angka penting
-     * - istilah spesifik
-     */
     const anchorWords =
-        topicWords.slice(0, 3);
+        sourceWords
+            .filter(word =>
+                ![
+                    'kota',
+                    'daerah',
+                    'tempat',
+                    'orang',
+                    'bagian',
+                    'hal',
+                    'info'
+                ].includes(word)
+            )
+            .slice(0, 3);
 
     const anchor =
         anchorWords.join(' ');
@@ -2772,12 +2840,116 @@ function buildContextButtons(
         return [];
     }
 
+    // ========================================================
+    // TOPIC STRENGTH
+    // ========================================================
+
+    const specificQuestion =
+        /(?:siapa|umur|usia|harga|alamat|lokasi|jadwal|skor|berapa|nama)/i
+            .test(rawSource);
+
+    const seriousTopic =
+        /(?:error|bug|coding|kode|script|tugas|kuliah|laporan|analisis|debug|harga|alamat|jadwal)/i
+            .test(rawSource);
+
+    const funTopic =
+        /(?:wkwk|wkwkwk|haha|lucu|anjir|anj|cok|meme|roasting|gila|seru|😂|😭|😹|🤣|💀)/i
+            .test(
+                `${rawSource} ${answer}`
+            );
+
+    const topicStrength =
+        Math.min(
+            1,
+            (
+                Math.min(
+                    topicWords.length,
+                    5
+                ) / 5
+            ) +
+            (specificQuestion ? 0.2 : 0)
+        );
+
+    // ========================================================
+    // RARE MENU RECOMMENDATION
+    // ========================================================
+
+    const weakConversation =
+        topicStrength < 0.35 &&
+        !seriousTopic;
+
+    const menuChance =
+        weakConversation
+            ? 0.08
+            : funTopic && topicStrength < 0.55
+                ? 0.035
+                : 0;
+
+    if (
+        Math.random() < menuChance
+    ) {
+        return [[
+            {
+                text: '🏘️ 𝗠𝗘𝗡𝗨',
+                callback_data: 'menu|open'
+            }
+        ]];
+    }
+
+    // ========================================================
+    // BUTTON COUNT
+    // ========================================================
+
+    let buttonCount;
+
+    if (specificQuestion) {
+        buttonCount =
+            Math.random() < 0.25
+                ? 1
+                : 2;
+    } else if (
+        topicStrength >= 0.75
+    ) {
+        const roll =
+            Math.random();
+
+        buttonCount =
+            roll < 0.60
+                ? 3
+                : roll < 0.92
+                    ? 2
+                    : 1;
+
+    } else if (
+        topicStrength >= 0.45
+    ) {
+        const roll =
+            Math.random();
+
+        buttonCount =
+            roll < 0.40
+                ? 3
+                : roll < 0.88
+                    ? 2
+                    : 1;
+
+    } else {
+        buttonCount =
+            Math.random() < 0.70
+                ? 2
+                : 1;
+    }
+
+    // ========================================================
+    // INTENT
+    // ========================================================
+
     const hasPersonIntent =
-        /(?:siapa|umur|usia|nama|aktor|aktris|pemain|orang|profil)/i
+        /(?:siapa|umur|usia|nama|aktor|aktris|pemain|profil)/i
             .test(rawSource);
 
     const hasSchoolIntent =
-        /(?:smp|sma|sekolah|kampus|universitas|sekolah)/i
+        /(?:smp|sma|sekolah|kampus|universitas)/i
             .test(rawSource);
 
     const hasLocationIntent =
@@ -2789,7 +2961,7 @@ function buildContextButtons(
             .test(rawSource);
 
     const hasCodingIntent =
-        /(?:coding|kode|script|error|bug|javascript|html|css|api|program)/i
+        /(?:coding|kode|script|error|bug|javascript|html|css|api|program|callback)/i
             .test(rawSource);
 
     const hasFootballIntent =
@@ -2804,89 +2976,65 @@ function buildContextButtons(
         /(?:gimana|bagaimana|cara|caranya)/i
             .test(rawSource);
 
-    /*
-     * 3 TYPE EMOJI TETAP.
-     *
-     * TYPE 0 = semua pakai emoji
-     * TYPE 1 = campuran
-     * TYPE 2 = tanpa emoji
-     */
-    const emojiMode =
-        Math.floor(
-            Math.random() * 3
-        );
-
-    let labels = [];
+    let labels;
 
     if (hasPersonIntent) {
         labels = [
-            'Umur ' + anchor,
-            'Profil ' + anchor,
-            'Karier ' + anchor
+            `Umur ${anchor}`,
+            `Karier ${anchor}`,
+            `Kabar ${anchor}`
         ];
 
     } else if (hasSchoolIntent) {
         labels = [
-            'Info ' + anchor,
-            'Lokasi ' + anchor,
-            'Fakta ' + anchor
+            `Info ${anchor}`,
+            `Lokasi ${anchor}`,
+            `Fakta ${anchor}`
         ];
 
     } else if (hasLocationIntent) {
         labels = [
-            'Lokasi ' + anchor,
-            'Info ' + anchor,
-            'Akses ' + anchor
+            `Lokasi ${anchor}`,
+            `Info ${anchor}`,
+            `Akses ${anchor}`
         ];
 
     } else if (hasPriceIntent) {
         labels = [
-            'Harga ' + anchor,
-            'Fitur ' + anchor,
-            'Beli ' + anchor
+            `Harga ${anchor}`,
+            `Fitur ${anchor}`,
+            `Produk ${anchor}`
         ];
 
     } else if (hasCodingIntent) {
         labels = [
-            'Bug ' + anchor,
-            'Fix ' + anchor,
-            'Solusi ' + anchor
+            `Bug ${anchor}`,
+            `Fix ${anchor}`,
+            `Solusi ${anchor}`
         ];
 
     } else if (hasFootballIntent) {
         labels = [
-            'Statistik ' + anchor,
-            'Prestasi ' + anchor,
-            'Laga ' + anchor
+            `Statistik ${anchor}`,
+            `Prestasi ${anchor}`,
+            `Laga ${anchor}`
         ];
 
     } else if (hasQuestionWhy) {
         labels = [
-            'Kenapa ' + anchor,
-            'Penyebab ' + anchor,
-            'Dampak ' + anchor
+            `Kenapa ${anchor}`,
+            `Penyebab ${anchor}`,
+            `Dampak ${anchor}`
         ];
 
     } else if (hasHowIntent) {
         labels = [
-            'Cara ' + anchor,
-            'Langkah ' + anchor,
-            'Tips ' + anchor
+            `Cara ${anchor}`,
+            `Langkah ${anchor}`,
+            `Tips ${anchor}`
         ];
 
     } else {
-        /*
-         * Kalau tidak punya intent spesifik:
-         * GUNAKAN ANCHOR TOPIK LANGSUNG.
-         *
-         * bukan:
-         * "bahas ini"
-         *
-         * tapi:
-         * "Yuki Kato"
-         * "SMP 40 Bekasi"
-         * "Heart Series"
-         */
         labels = [
             anchor,
             `Fakta ${anchor}`,
@@ -2894,15 +3042,18 @@ function buildContextButtons(
         ];
     }
 
+    // ========================================================
+    // EMOJI STRENGTH
+    // ========================================================
+
     const emojiPool = [
         ['👩🏻‍💼', '🎬', '📸'],
         ['🏫', '📍', '🎓'],
-        ['📍', '🗺️', '🏙️'],
         ['💸', '📦', '🛒'],
         ['🐛', '🛠️', '💡'],
         ['⚽', '🏆', '🔥'],
         ['🤔', '🧠', '💥'],
-        ['🛠️', '⚙️', '🚀'],
+        ['🛠️', '😹', '🚀'],
         ['📌', '🧠', '👀']
     ];
 
@@ -2914,9 +3065,46 @@ function buildContextButtons(
             )
         ];
 
+    /*
+     * situasi menentukan emoji.
+     *
+     * serius → tanpa emoji lebih sering
+     * biasa → mixed lebih sering
+     * fun → emoji lebih sering
+     */
+    let emojiMode;
+
+    const emojiRoll =
+        Math.random();
+
+    if (seriousTopic) {
+        emojiMode =
+            emojiRoll < 0.70
+                ? 2
+                : emojiRoll < 0.92
+                    ? 1
+                    : 0;
+
+    } else if (funTopic) {
+        emojiMode =
+            emojiRoll < 0.55
+                ? 0
+                : emojiRoll < 0.88
+                    ? 1
+                    : 2;
+
+    } else {
+        emojiMode =
+            emojiRoll < 0.30
+                ? 0
+                : emojiRoll < 0.70
+                    ? 1
+                    : 2;
+    }
+
     const formatted =
         labels
-            .slice(0, 3)
+            .slice(0, buttonCount)
             .map((label, index) => {
                 let prefix = '';
 
@@ -2924,16 +3112,17 @@ function buildContextButtons(
                     prefix =
                         chosenEmoji[index] || '';
 
-                } else if (emojiMode === 1) {
+                } else if (
+                    emojiMode === 1 &&
+                    index === 0
+                ) {
                     prefix =
-                        index === 0
-                            ? chosenEmoji[0]
-                            : '';
-
+                        chosenEmoji[0];
                 }
 
                 return compactButtonLabel(
-                    `${prefix ? prefix + ' ' : ''}${label}`
+                    `${prefix ? prefix + ' ' : ''}${label}`,
+                    3
                 );
             })
             .filter(Boolean);
@@ -2949,7 +3138,7 @@ function buildContextButtons(
                         `ask|${label}`
                 },
                 rawSource,
-                answerText
+                answer
             );
 
         if (!isRelated) {
@@ -2964,7 +3153,7 @@ function buildContextButtons(
     }
 
     return buttons.length
-        ? [buttons.slice(0, 3)]
+        ? [buttons.slice(0, buttonCount)]
         : [];
 }
 
@@ -3028,7 +3217,10 @@ const finalReplyOptions = {
 };
 
 function normalizeInlineKeyboard(source) {
-    if (!Array.isArray(source) || source.length === 0) {
+    if (
+        !Array.isArray(source) ||
+        source.length === 0
+    ) {
         return [];
     }
 
@@ -3038,6 +3230,7 @@ function normalizeInlineKeyboard(source) {
             : [source];
 
     const cleanRows = [];
+    let totalButtons = 0;
 
     for (const row of rows) {
         if (!Array.isArray(row)) {
@@ -3068,12 +3261,14 @@ function normalizeInlineKeyboard(source) {
 
             if (
                 button.callback_data &&
-                String(button.callback_data)
-                    .startsWith('ask|')
+                String(
+                    button.callback_data
+                ).startsWith('ask|')
             ) {
                 cleanButton.callback_data =
-                    String(button.callback_data)
-                        .slice(0, 64);
+                    String(
+                        button.callback_data
+                    ).slice(0, 64);
             }
 
             if (
@@ -3086,39 +3281,29 @@ function normalizeInlineKeyboard(source) {
                     String(button.url).trim();
             }
 
-            // Button callback ATAU URL.
-            // Jangan kirim button tanpa action.
             if (
-                cleanButton.callback_data ||
-                cleanButton.url
+                !cleanButton.callback_data &&
+                !cleanButton.url
             ) {
-                cleanRow.push(cleanButton);
+                continue;
             }
 
-            // Maksimal 3 tombol TOTAL.
-            if (
-                cleanRows.flat().length +
-                cleanRow.length >= 3
-            ) {
+            cleanRow.push(
+                cleanButton
+            );
+
+            totalButtons++;
+
+            if (totalButtons >= 5) {
                 break;
             }
         }
 
         if (cleanRow.length) {
-            cleanRows.push(
-                cleanRow.slice(
-                    0,
-                    Math.max(
-                        0,
-                        3 - cleanRows.flat().length
-                    )
-                )
-            );
+            cleanRows.push(cleanRow);
         }
 
-        if (
-            cleanRows.flat().length >= 3
-        ) {
+        if (totalButtons >= 5) {
             break;
         }
     }
