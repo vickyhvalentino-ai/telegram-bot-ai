@@ -2278,6 +2278,13 @@ await bot.editMessageText(
     }
 ).catch(() => {});
 
+                    } catch (e) {
+                        console.error(
+                            '[LIMIT STATUS ANIMATION ERROR]',
+                            e?.message || e
+                        );
+                    }
+
                 // ROTASI SIKLUS BERULANG!
                 console.log(`[LIMIT] ${currentModel} di email ${activeKeys[currentKeyIndex].email} HABIS. Berevolusi!`);
                 currentModelIndex++;
