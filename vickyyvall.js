@@ -38,13 +38,13 @@ try {
 // ============================================================
 // KONFIGURASI
 // ============================================================
-const TELEGRAM_BOT_TOKEN = process.env.VICYYVALL|| 'PASTE_BOT_TOKEN_DI_SINI';
+const TELEGRAM_BOT_TOKEN = process.env.VICKYYVALL|| 'PASTE_BOT_TOKEN_DI_SINI';
 const PORT = process.env.PORT || 8080;
 const MAX_HISTORY = 15;
 const MAX_TEXT_FILE = 12000;
 
 if (TELEGRAM_BOT_TOKEN === 'PASTE_BOT_TOKEN_DI_SINI') {
-    console.error('❌ TELEGRAM_BOT_TOKEN belum diisi. Set environment variable TELEGRAM_BOT_TOKEN.');
+    console.error('❌ VICKYYVALL belum diisi. Set environment variable TELEGRAM_BOT_TOKEN.');
     process.exit(1);
 }
 
