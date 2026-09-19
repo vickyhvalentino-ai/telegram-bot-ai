@@ -287,70 +287,6 @@ function displayName(msg) {
     return [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username || 'Telegram User';
 }
 
-function buildResponseStyleInstruction(userText) {
-    const value =
-        String(userText || '')
-            .toLowerCase()
-            .trim();
-
-    const technical =
-        /\b(?:tugas|sekolah|kuliah|makalah|laporan|coding|kode|script|javascript|typescript|html|css|json|config|debug|debugging|error|bug|tutorial|dokumentasi|analisis|penjelasan teknis|instruksi|program|fungsi|api|railway|telegram bot|node\.js)\b/i
-            .test(value);
-
-    const strongCasual =
-        /(?:wkwk|wkwkwk|awokawok|awikwok|anjir|anjg|ajg|njir|jir|cok|bangsat|bangke|cuy|bray|ngab|gas|bro|gabut|tolol|caper|😭|🤣|😂|😹|🗿|💀|🔥|😎)/
-            .test(value);
-
-    if (technical) {
-        return (
-            `[INFO GAYA RESPONS: USER SEDANG MEMINTA PENGERJAAN/TEKNIS. ` +
-            `Gunakan bahasa Indonesia yang rapi dan profesional. ` +
-            `Gunakan kapitalisasi normal. ` +
-            `Gunakan struktur yang jelas hanya jika memang diperlukan. ` +
-            `Gunakan ENTER yang jelas. ` +
-            `Gunakan code block untuk source code. ` +
-            `Jangan menggunakan gaya tongkrongan berlebihan. ` +
-            `Jangan membuat paragraf raksasa. ` +
-            `Jangan menambahkan basa-basi yang tidak diperlukan.]`
-        );
-    }
-
-    if (strongCasual) {
-        return (
-            `[INFO GAYA RESPONS: USER SEDANG DALAM OBROLAN SANTAI/GAUL. ` +
-            `WAJIB gunakan pola kapitalisasi chat: huruf pertama setiap bait/paragraf kapital, ` +
-            `setelah itu lowercase sampai ENTER berikutnya. Nama khusus tetap mengikuti kapitalisasi yang benar. ` +
-            `Jangan membuat judul. ` +
-            `Jangan menggunakan numbering kecuali user memang meminta. ` +
-            `Jangan menjadi baku. ` +
-            `Jangan menjadi customer service. ` +
-            `Jangan menggunakan pembuka seperti "Halo! Ada yang bisa saya bantu?". ` +
-            `Ikuti gaya bahasa user secara natural. ` +
-            `Boleh menggunakan gw/lu/gua/lo. ` +
-            `Boleh menggunakan slang, meme, sarkas ringan, roasting ringan, dan emoji yang relevan. ` +
-            `Jangan sok alay. ` +
-            `Jangan spam emoji. ` +
-            `Jangan dry text. ` +
-            `Untuk chat pendek, tetap berikan respons yang hidup dan komunikatif. ` +
-            `Jika ada pergantian pikiran, gunakan ENTER dan satu baris kosong. ` +
-            `Panjang respons harus pas: tidak terlalu pendek dan tidak terlalu panjang.]`
-        );
-    }
-
-    return (
-        `[INFO GAYA RESPONS: USER SEDANG OBROLAN BIASA. ` +
-        `Gunakan bahasa natural dan santai. ` +
-        `Gunakan pola kapitalisasi chat: huruf pertama setiap bait/paragraf kapital, setelah itu lowercase. ` +
-        `Nama khusus tetap mengikuti kapitalisasi yang benar. ` +
-        `Jangan menjadi customer service. ` +
-        `Jangan memaksakan judul atau numbering. ` +
-        `Gunakan ENTER jika ada pergantian pikiran. ` +
-        `Untuk chat pendek, jangan menjawab terlalu pendek jika konteks memungkinkan percakapan lebih hidup. ` +
-        `Jangan dry text. ` +
-        `Jangan yapping.]`
-    );
-}
-
 function isCommand(text) {
     return /^(?:\/(?:start|help|mute|unmute|status|reset|addvip|addlimit|ceklimit)(?:@\w+)?(?:\s|$))/i.test(
         String(text || '').trim()
@@ -363,12 +299,21 @@ function normalizeTelegramStructure(text) {
         .split('\n');
 
     const output = [];
+    const NBSP = '\u00A0';
 
     let inCodeBlock = false;
-    let keepNextLineSeparate = false;
+    let mainPointActive = false;
+    let subPointActive = false;
+    let previousWasHeading = false;
 
     const headingRegex =
         /^(?:\*\*[^*\n]+\*\*|<b>[^<\n]+<\/b>)$/;
+
+    const mainPointRegex =
+        /^(\d+)\s*\.\s*(.*)$/;
+
+    const subPointRegex =
+        /^(?:[–—-])\s+(.+)$/;
 
     const pushBlankOnce = () => {
         if (
@@ -379,6 +324,24 @@ function normalizeTelegramStructure(text) {
         }
     };
 
+    const appendNaturalContinuation = value => {
+        const clean =
+            String(value || '').trim();
+
+        if (!clean) return;
+
+        if (
+            !output.length ||
+            output[output.length - 1] === ''
+        ) {
+            output.push(clean);
+            return;
+        }
+
+        output[output.length - 1] =
+            `${output[output.length - 1]} ${clean}`;
+    };
+
     for (const rawLine of lines) {
         const trimmed =
             String(rawLine || '')
@@ -386,13 +349,17 @@ function normalizeTelegramStructure(text) {
                 .trim();
 
         if (/^```/.test(trimmed)) {
-            inCodeBlock = !inCodeBlock;
+            inCodeBlock =
+                !inCodeBlock;
 
             output.push(
                 rawLine.replace(/\s+$/g, '')
             );
 
-            keepNextLineSeparate = false;
+            mainPointActive = false;
+            subPointActive = false;
+            previousWasHeading = false;
+
             continue;
         }
 
@@ -404,11 +371,16 @@ function normalizeTelegramStructure(text) {
         }
 
         if (!trimmed) {
-            if (keepNextLineSeparate) {
+            if (previousWasHeading) {
                 continue;
             }
 
             pushBlankOnce();
+
+            mainPointActive = false;
+            subPointActive = false;
+            previousWasHeading = false;
+
             continue;
         }
 
@@ -422,85 +394,73 @@ function normalizeTelegramStructure(text) {
             }
 
             output.push(trimmed);
-            keepNextLineSeparate = true;
+
+            mainPointActive = false;
+            subPointActive = false;
+            previousWasHeading = true;
+
             continue;
         }
 
         const mainPoint =
-            trimmed.match(/^(\d+)\s*\.\s*(.*)$/);
+            trimmed.match(mainPointRegex);
 
         if (mainPoint) {
-            if (output.length) {
+            if (
+                output.length &&
+                !previousWasHeading
+            ) {
                 pushBlankOnce();
             }
 
-            const number = mainPoint[1];
-            const body = mainPoint[2].trim();
-
-            const boldTitle =
-                body.match(/^\*\*(.+?)\*\*(?:\s*[:：]\s*(.*))?$/);
-
-            if (boldTitle) {
-                const title =
-                    boldTitle[1].trim();
-
-                const continuation =
-                    String(
-                        boldTitle[2] || ''
-                    ).trim();
-
-                output.push(
-                    `${number}. **${title}**`
-                );
-
-                if (continuation) {
-                    output.push(
-                        continuation
-                    );
-                }
-
-                keepNextLineSeparate =
-                    !continuation;
-
-                continue;
-            }
-
             output.push(
-                `${number}. ${body}`
+                `${mainPoint[1]}. ${mainPoint[2].trim()}`
             );
 
-            keepNextLineSeparate = false;
+            mainPointActive = true;
+            subPointActive = false;
+            previousWasHeading = false;
+
             continue;
         }
 
-        const dashPoint =
-            trimmed.match(
-                /^(?:[–—-])\s*(.+)$/
-            );
-
-        if (dashPoint) {
-            output.push(
-                `– ${dashPoint[1].trim()}`
-            );
-
-            keepNextLineSeparate = false;
-            continue;
-        }
-
-        if (keepNextLineSeparate) {
-            output.push(trimmed);
-            keepNextLineSeparate = false;
-            continue;
-        }
+        const subPoint =
+            trimmed.match(subPointRegex);
 
         if (
-            output.length &&
-            output[output.length - 1] !== ''
+            subPoint &&
+            (
+                mainPointActive ||
+                subPointActive
+            )
         ) {
-            output.push(trimmed);
-        } else {
-            output.push(trimmed);
+            output.push(
+                `${NBSP.repeat(4)}– ${subPoint[1].trim()}`
+            );
+
+            subPointActive = true;
+            previousWasHeading = false;
+
+            continue;
         }
+
+        if (subPointActive) {
+            appendNaturalContinuation(trimmed);
+            previousWasHeading = false;
+            continue;
+        }
+
+        if (mainPointActive) {
+            appendNaturalContinuation(trimmed);
+            previousWasHeading = false;
+            continue;
+        }
+
+        output.push(trimmed);
+
+        mainPointActive = false;
+        subPointActive = false;
+        previousWasHeading = false;
     }
 
     return output
@@ -582,89 +542,29 @@ async function sendReply(bot, chatId, text, extra = {}) {
 
     let safeText = String(text).trim();
 
+    // ============================================================
+    // 🔒 MUTLAK 1 GELEMBUNG TELEGRAM
+    // Maksimum dibuat sedikit di bawah batas Telegram
+    // agar tidak pernah masuk sistem split menjadi beberapa pesan.
+    // ============================================================
     const MAX_ONE_BUBBLE = 3500;
 
     if (safeText.length > MAX_ONE_BUBBLE) {
-        let cut =
-            safeText.lastIndexOf(
-                '\n',
-                MAX_ONE_BUBBLE
-            );
+        let cut = safeText.lastIndexOf('\n', MAX_ONE_BUBBLE);
 
         if (cut < 1000) {
             cut = MAX_ONE_BUBBLE;
         }
 
-        safeText =
-            safeText
-                .slice(0, cut)
-                .trimEnd();
+        safeText = safeText.slice(0, cut).trimEnd();
 
         safeText += '\n\n…';
     }
 
-    const structuredText =
-        normalizeTelegramStructure(
-            safeText
-        );
-
-    const htmlText =
-        convertMarkdownToHTML(
-            structuredText
-        );
-
-    const sendExtra = {
-        ...extra
-    };
-
-    if (
-        sendExtra.reply_markup &&
-        Array.isArray(
-            sendExtra.reply_markup.inline_keyboard
-        )
-    ) {
-        const keyboard =
-            sendExtra
-                .reply_markup
-                .inline_keyboard;
-
-        const fixedKeyboard = [];
-
-        for (const row of keyboard) {
-            if (Array.isArray(row)) {
-                const validButtons =
-                    row.filter(button =>
-                        button &&
-                        typeof button === 'object' &&
-                        typeof button.text === 'string'
-                    );
-
-                if (validButtons.length) {
-                    fixedKeyboard.push(
-                        validButtons
-                    );
-                }
-
-                continue;
-            }
-
-            if (
-                row &&
-                typeof row === 'object' &&
-                typeof row.text === 'string'
-            ) {
-                fixedKeyboard.push([
-                    row
-                ]);
-            }
-        }
-
-        sendExtra.reply_markup = {
-            ...sendExtra.reply_markup,
-            inline_keyboard:
-                fixedKeyboard
-        };
-    }
+const structuredText =
+    normalizeTelegramStructure(safeText);
+const htmlText =
+    convertMarkdownToHTML(structuredText);
 
     try {
         await bot.sendMessage(
@@ -672,7 +572,7 @@ async function sendReply(bot, chatId, text, extra = {}) {
             htmlText,
             {
                 parse_mode: 'HTML',
-                ...sendExtra
+                ...extra
             }
         );
     } catch (error) {
@@ -681,24 +581,17 @@ async function sendReply(bot, chatId, text, extra = {}) {
             error.message
         );
 
-        const plainText =
-            htmlText
-                .replace(
-                    /<[^>]*>?/gm,
-                    ''
-                )
-                .slice(
-                    0,
-                    MAX_ONE_BUBBLE
-                )
-                .trim();
+        const plainText = htmlText
+            .replace(/<[^>]*>?/gm, '')
+            .slice(0, MAX_ONE_BUBBLE)
+            .trim();
 
         try {
             await bot.sendMessage(
                 chatId,
                 plainText,
                 {
-                    ...sendExtra,
+                    ...extra,
                     parse_mode: undefined
                 }
             );
@@ -764,118 +657,84 @@ bot.onText(/^\/(start|help)(?:@\w+)?$/i, async (msg) => {
         ? `@${user.username}`
         : 'Tidak ada username';
 
-    const statusText =
-        getStatusLabel(info.status);
+    const statusText = getStatusLabel(info.status);
 
-    const limitText =
-        info.unlimited
-            ? 'Unlimited ∞'
-            : `${info.remaining} / ${info.total}`;
+    const limitText = info.unlimited
+        ? 'Unlimited ∞'
+        : `${info.remaining} / ${info.total}`;
 
-    const usedText =
-        `${info.used} penggunaan`;
+    const usedText = info.unlimited
+        ? `${info.used} penggunaan`
+        : `${info.used} penggunaan`;
 
     const text =
         `<b>✦ VICKYYVALL - AI ✦</b>\n` +
         `<i>YOUR AI • YOUR SPACE • YOUR VIBE</i>\n\n` +
 
         `<blockquote>` +
-        `<b>👤 PROFILE</b>\n` +
-        `› Username : <b>${username}</b>\n` +
-        `› Status   : <b>${statusText}</b>\n` +
-        `› AI Limit : <b>${limitText}</b>\n` +
-        `› Terpakai : <b>${usedText}</b>` +
+        `<b>👤 USER PROFILE</b>\n` +
+        `├ Username : <b>${username}</b>\n` +
+        `├ Status   : <b>${statusText}</b>\n` +
+        `├ AI Limit : <b>${limitText}</b>\n` +
+        `└ Terpakai : <b>${usedText}</b>` +
         `</blockquote>\n\n` +
 
         `<blockquote>` +
         `<b>💎 VIP ACCESS</b>\n` +
-        `› Limit utama : <b>50</b>\n` +
-        `› Bonus       : <b>+25</b>\n` +
-        `› Total       : <b>75 AI / hari</b>\n` +
-        `› Reset       : <b>00.00 WIB</b>\n` +
-        `› Harga VIP   : <b>Rp25.900</b>` +
+        `├ Harga normal : <s>3̶9̶.̶9̶0̶0̶</s>\n` +
+        `├ Harga VIP    : <b>Rp25.900</b>\n` +
+        `├ Limit utama  : <b>50</b>\n` +
+        `├ Bonus        : <b>+25</b>\n` +
+        `└ Total        : <b>75 AI Limit</b>` +
         `</blockquote>\n\n` +
 
-        `<blockquote>` +
-        `<b>✍🏻COMMAND BOT</b>\n` +
-        `› <code>/start</code> — menu utama\n` +
-        `› <code>/help</code> — bantuan & menu\n` +
-        `› <code>/ceklimit</code> — cek limit AI\n` +
-        `› <code>/mute</code> — matikan respons AI\n` +
-        `› <code>/unmute</code> — aktifkan respons AI\n` +
-        `› <code>/reset</code> — reset memori chat\n` +
-        `› <code>/addvip @username</code> — owner\n` +
-        `› <code>/addlimit @username jumlah</code> — owner` +
-        `</blockquote>\n\n` +
+        `<b>vìckyyvall - AI Multifungsi</b> 🏴‍☠️\n\n` +
+        `Teman AI yang siap nemenin lu kapan aja. 😎\n\n` +
+        `Mau ngobrol, cari ide, belajar, coding, bahas bola, ` +
+        `atau sekadar random juga gw gas😹🔥\n\n` +
 
-        `<b>vickyyvall - AI multifungsi</b>\n` +
-        `ngobrol, belajar, coding, cari ide, bahas bola, ` +
-        `atau random juga boleh.`;
+        `<b>✨ PILIHAN MENU</b>\n` +
+        `Pilih tombol di bawah atau langsung ketik apa yang mau lu obrolin.\n\n` +
 
-    const keyboard = [
+        `<b>Temukan juga vickyyvall - AI di sini 👇</b>`;
+
+const keyboard = [
+    [
+        { text: '💎 AM Prem 1th', url: 'https://t.me/vickyyvall' },
+        { text: '🛒 Upgrade AI', callback_data: 'ui|vip' }
+    ],
+    [
+        { text: '📊 Cek Limit', callback_data: 'ui|limit' },
+        { text: '🏆 Info VIP', callback_data: 'ui|vip' }
+    ],
         [
-            {
-                text: '💎 Upgrade AI',
-                callback_data: 'ui|vip'
-            },
-            {
-                text: '📊 Cek Limit',
-                callback_data: 'ui|limit'
-            }
+            { text: '🎵 Tiktok @vickyyvall', url: 'https://www.tiktok.com/@vickyyvall' }
         ],
         [
-            {
-                text: '🏆 Info VIP',
-                callback_data: 'ui|vip'
-            }
-        ],
-        [
-            {
-                text: '🎵 TikTok @vickyyvall',
-                url: 'https://www.tiktok.com/@vickyyvall'
-            }
-        ],
-        [
-            {
-                text: '📸 Instagram @vickyhx013_',
-                url: 'https://www.instagram.com/vickyhx013_'
-            }
+            { text: '📸 Instagram @vickyhx013_', url: 'https://www.instagram.com/vickyhx013_' }
         ],
         randomStartButtons()
     ];
 
-    const mediaUrl =
-        'https://ibb.co.com/s9tq563Y';
+    const mediaUrl = 'https://ibb.co.com/s9tq563Y';
 
     try {
-        await bot.sendPhoto(
-            msg.chat.id,
-            mediaUrl,
-            {
-                caption: text,
-                parse_mode: 'HTML',
-                reply_to_message_id:
-                    msg.message_id,
-                reply_markup: {
-                    inline_keyboard:
-                        keyboard
-                }
-            }
-        );
+        await bot.sendPhoto(msg.chat.id, mediaUrl, {
+    caption: text,
+    parse_mode: 'HTML',
+    reply_to_message_id: msg.message_id,
+    reply_markup: { inline_keyboard: keyboard }
+});
     } catch (error) {
         await sendReply(
-            bot,
-            msg.chat.id,
-            text,
-            {
-                reply_to_message_id:
-                    msg.message_id,
-                reply_markup: {
-                    inline_keyboard:
-                        keyboard
-                }
-            }
-        );
+    bot,
+    msg.chat.id,
+    text,
+    {
+        reply_to_message_id: msg.message_id,
+        reply_markup: { inline_keyboard: keyboard }
+    }
+); 
     }
 });
 
@@ -2038,7 +1897,7 @@ async function startWebSearchStatusBubble(
         statusMessage =
             await bot.sendMessage(
                 chatId,
-                '??Searching.',
+                '🔍Searching.',
                 {
                     reply_to_message_id:
                         replyToId ||
@@ -2584,75 +2443,6 @@ async function processAIResponse(
 	
     let text = String(rawResponse || '').trim();
 text = stripInternalLeakage(text);
-
-const normalizeCasualParagraphs = (
-    value,
-    prompt
-) => {
-    const source =
-        String(prompt || '').toLowerCase();
-
-    const structural =
-        /(?:^|\n)\s*(?:\d+\.\s+|[–—-]\s+)/m.test(value) ||
-        /<blockquote>|<pre>|```/i.test(value);
-
-    const technical =
-        /\b(?:coding|code|kode|script|javascript|typescript|html|css|json|config|debug|error|bug|tutorial|tugas|kuliah|sekolah|laporan|makalah|dokumentasi|analisis|program|fungsi|function|api|telegram|railway|node\.js)\b/i.test(
-            source
-        );
-
-    if (structural || technical) {
-        return value;
-    }
-
-    if (value.includes('\n\n')) {
-        return value
-            .replace(/\n{3,}/g, '\n\n')
-            .trim();
-    }
-
-    if (value.length < 220) {
-        return value;
-    }
-
-    const sentences =
-        value
-            .split(/(?<=[.!?])\s+/u)
-            .map(part => part.trim())
-            .filter(Boolean);
-
-    if (sentences.length < 3) {
-        return value;
-    }
-
-    const paragraphs = [];
-    let current = [];
-
-    for (const sentence of sentences) {
-        current.push(sentence);
-
-        if (current.length >= 2) {
-            paragraphs.push(
-                current.join(' ')
-            );
-
-            current = [];
-        }
-    }
-
-    if (current.length) {
-        paragraphs.push(
-            current.join(' ')
-        );
-    }
-
-    return paragraphs.join('\n\n');
-};
-
-text = normalizeCasualParagraphs(
-    text,
-    sourcePrompt
-);
 text = text
     .replace(
         /<<<BUTTONS:[\s\S]*?>>>/gi,
@@ -2800,191 +2590,8 @@ const extractButtonJson = source => {
     return null;
 };
 
-const extractLooseButtonJson = source => {
-    for (
-        let searchFrom = 0;
-        searchFrom < source.length;
-    ) {
-        const arrayStart =
-            source.indexOf(
-                '[',
-                searchFrom
-            );
-
-        if (arrayStart < 0) {
-            return null;
-        }
-
-        let depth = 0;
-        let inString = false;
-        let escaped = false;
-
-        for (
-            let i = arrayStart;
-            i < source.length;
-            i++
-        ) {
-            const char = source[i];
-
-            if (inString) {
-                if (escaped) {
-                    escaped = false;
-                    continue;
-                }
-
-                if (char === '\\') {
-                    escaped = true;
-                    continue;
-                }
-
-                if (char === '"') {
-                    inString = false;
-                }
-
-                continue;
-            }
-
-            if (char === '"') {
-                inString = true;
-                continue;
-            }
-
-            if (char === '[') {
-                depth++;
-            }
-
-            if (char === ']') {
-                depth--;
-
-                if (depth === 0) {
-                    const candidate =
-                        source.slice(
-                            arrayStart,
-                            i + 1
-                        );
-
-                    try {
-                        const parsed =
-                            JSON.parse(
-                                candidate
-                            );
-
-                        if (
-                            Array.isArray(parsed) &&
-                            parsed.length > 0 &&
-                            parsed.every(item =>
-                                item &&
-                                typeof item === 'object' &&
-                                String(item.text || '').trim() &&
-                                (
-                                    String(item.callback_data || '').trim() ||
-                                    String(item.url || '').trim()
-                                )
-                            )
-                        ) {
-                            return {
-                                json: candidate,
-                                start: arrayStart,
-                                end: i + 1
-                            };
-                        }
-                    } catch {}
-
-                    break;
-                }
-            }
-        }
-
-        searchFrom =
-            arrayStart + 1;
-    }
-
-    return null;
-};
-
 const buttonMatch =
-    extractButtonJson(text) ||
-    extractLooseButtonJson(text);
-
-// ============================================================
-// LEGACY KEYBOARD FORMAT RECOVERY
-// Model lama kadang masih menghasilkan:
-// [Keyboard]
-// [{Teks: ..., Callback_data: ...}]
-// Format mentah ini tidak boleh sampai tampil ke user.
-// ============================================================
-if (!buttonMatch) {
-    const legacyKeyboardRegex =
-        /(?:^|\n)\s*\[Keyboard\]\s*\n?\s*(\[[\s\S]*\])\s*$/i;
-
-    const legacyMatch =
-        text.match(legacyKeyboardRegex);
-
-    if (legacyMatch) {
-        const legacyBody =
-            String(legacyMatch[1] || '');
-
-        const legacyButtons = [];
-        const legacyButtonRegex =
-            /\{\s*(?:Teks|text)\s*:\s*(.*?)\s*,\s*(?:Callback_data|callback_data)\s*:\s*([^}\]]+?)\s*\}/gi;
-
-        let legacyPart;
-
-        while (
-            (legacyPart =
-                legacyButtonRegex.exec(legacyBody))
-            && legacyButtons.length < 3
-        ) {
-            const legacyText =
-                String(legacyPart[1] || '')
-                    .trim()
-                    .replace(/^['"]|['"]$/g, '');
-
-            const rawCallback =
-                String(legacyPart[2] || '')
-                    .trim()
-                    .replace(/^['"]|['"]$/g, '');
-
-            if (!legacyText || !rawCallback) {
-                continue;
-            }
-
-            let safeCallback =
-                rawCallback.startsWith('ask|')
-                    ? rawCallback
-                    : `ask|${rawCallback}`;
-
-            if (
-                Buffer.byteLength(
-                    safeCallback,
-                    'utf8'
-                ) > 64
-            ) {
-                safeCallback =
-                    Buffer.from(
-                        safeCallback,
-                        'utf8'
-                    )
-                        .subarray(0, 64)
-                        .toString('utf8');
-            }
-
-            legacyButtons.push({
-                text: legacyText,
-                callback_data: safeCallback
-            });
-        }
-
-        if (legacyButtons.length > 0) {
-            inline_keyboard = [legacyButtons];
-        }
-
-        text =
-            text
-                .replace(legacyKeyboardRegex, '')
-                .trim();
-    }
-}
+    extractButtonJson(text);
 
 if (buttonMatch) {
     try {
@@ -3026,11 +2633,12 @@ if (buttonMatch) {
                     continue;
                 }
 
-                if (callbackData) {
+                if (
+                    callbackData &&
+                    callbackData.startsWith('ask|')
+                ) {
                     let safeCallback =
-                        callbackData.startsWith('ask|')
-                            ? callbackData
-                            : `ask|${callbackData}`;
+                        callbackData;
 
                     if (
                         Buffer.byteLength(
@@ -3116,107 +2724,60 @@ if (limitWarning) {
     text += limitWarning;
 }
 
-const hasSubstantialAnswer =
-    String(text || '').trim().length >= 80;
+// JANGAN paksa tombol rekomendasi generik.
+// Jika AI membuat tombol sendiri, gunakan tombol AI tersebut.
+// Jika AI tidak membuat tombol, biarkan tidak ada tombol.
+//
+// Tujuannya:
+// AI SENDIRI yang menentukan apakah tombol diperlukan,
+// berapa jumlahnya, apa topiknya, dan apakah memakai emoji.
+//
+// Tidak ada lagi:
+// - randomStartButtons()
+// - START_BUTTON_POOL sebagai fallback
+// - tombol "Trik hp"
+// - tombol "Fakta random"
+// - tombol "Rekomendasi musik"
+// - tombol generik lain yang tidak berkaitan dengan percakapan.
 
-const isSimpleChat =
-    /^(?:hai|halo|hi|hello|iya|iyaaa|oke|ok|siap|yaa|ya|makasih|terima kasih|thanks|thx)\b/i
-        .test(
-            String(sourcePrompt || '').trim()
-        );
-
-const isCasualChat =
-    /(?:wkwk|wkwkwk|awokawok|awikwok|anjir|anjg|ajg|njir|jir|cok|bangsat|bangke|cuy|bray|ngab|gas|bro|gabut|tolol|caper|haha|hehe|🤣|😂|😭|😹|💀|🗿)/i
-        .test(
-            String(sourcePrompt || '').trim()
-        );
-
-if (
-    inline_keyboard.length < 2 &&
-    hasSubstantialAnswer &&
-    !isSimpleChat &&
-    !isCasualChat &&
-    !isAlightMotionTopic(sourcePrompt)
-) {
-    const cleanTopic =
-        String(sourcePrompt || '')
-            .replace(/\s+/g, ' ')
-            .trim()
-            .slice(0, 42);
-
-    const fallbackButtons = [
-    {
-        text: '🧠 Bahas lebih lanjut',
-        callback_data:
-            `ask|bahas lebih lanjut tentang ${cleanTopic}`
-    },
-    {
-        text: '💡 Kasih contoh',
-        callback_data:
-            `ask|kasih contoh yang relevan dengan ${cleanTopic}`
-    },
-    {
-        text: '🔎 Cek detail',
-        callback_data:
-            `ask|jelaskan detail penting tentang ${cleanTopic}`
-    }
-];
-
-const existingButtons =
-    inline_keyboard
-        .flat()
-        .filter(button =>
-            button &&
-            typeof button === 'object' &&
-            typeof button.text === 'string'
-        );
-
-for (const nextButton of fallbackButtons) {
-    if (existingButtons.length >= 3) {
-        break;
-    }
-
-    const duplicate =
-        existingButtons.some(button =>
-            button.callback_data ===
-                nextButton.callback_data ||
-            button.url ===
-                nextButton.url
-        );
-
-    if (!duplicate) {
-        existingButtons.push(
-            nextButton
-        );
-    }
+if (!text && !imageToSent && !fileToSend) {
+    text = '😭 AI nggak menghasilkan jawaban kali ini.';
 }
 
-inline_keyboard =
-    existingButtons.length > 0
-        ? [existingButtons.slice(0, 3)]
-        : [];
-}
-
-const finalReplyOptions = {
-    reply_to_message_id: replyToId,
-    ...(inline_keyboard.length > 0
-        ? {
-            reply_markup: {
-                inline_keyboard:
-                    inline_keyboard.slice(0, 3)
-            }
+    // Kirim Media
+    if (imageToSent) {
+        try {
+            await bot.sendPhoto(chatId, imageToSent);
+        } catch (e) {
+            console.error('[GAMBAR CHAT GAGAL]', e.message);
         }
-        : {}),
-    ...(replyOptions && typeof replyOptions === 'object'
-        ? replyOptions
-        : {})
-};
+    }
+
+    if (fileToSend) {
+        try {
+            const fileBuffer = Buffer.from(fileToSend.content, 'utf8');
+            await bot.sendDocument(chatId, fileBuffer, {}, { filename: fileToSend.name, contentType: 'text/plain' });
+        } catch (e) {
+            console.error('[FILE SEND ERROR]', e.message);
+        }
+    }
+
+    // Kirim Teks + Tombol
+    let extraOptions = replyOptions && typeof replyOptions === 'object'
+    ? { ...replyOptions }
+    : { reply_to_message_id: replyToId };
+
+if (inline_keyboard.length > 0) {
+    extraOptions.reply_markup = {
+        inline_keyboard
+    };
+}
 
 await sendReply(
     bot,
     chatId,
     text,
-    finalReplyOptions
+    extraOptions
 );
 
 latestWebSearchByChat.delete(String(chatId));
@@ -3513,10 +3074,6 @@ try {
 
 } finally {
 
-    await new Promise(resolve =>
-        setTimeout(resolve, 3000)
-    );
-
     aiBusyChats.delete(chatId);
 }
 
@@ -3595,51 +3152,32 @@ try {
             // INJEKSI RAHASIA BIAR FORMAT LIST RAPI & BUTTON MUNCUL
             const formatReminder =
     `[INFO SISTEM: FORMAT TELEGRAM MUTLAK. ` +
-    `Untuk OBROLAN BIASA, jangan memaksa numbering, judul, atau sub-point. ` +
-    `Gunakan paragraf/bait yang natural dan pisahkan pergantian pikiran dengan ENTER. ` +
-    `Untuk TUGAS/PENGERJAAN/PENJELASAN TEKNIS, gunakan struktur rapi dan rata kiri. ` +
-    `Judul utama berdiri sendiri dan gunakan HURUF KAPITAL SEMUA. ` +
-    `Setelah judul utama tidak boleh ada baris kosong. ` +
-    `Main point menggunakan 1., 2., 3., 4., 5., dan seterusnya tanpa batas angka jika memang relevan. ` +
-    `Nomor dan judul point harus berdiri sendiri pada satu baris. ` +
-    `Penjelasan WAJIB dimulai pada baris berikutnya. ` +
-    `JANGAN menulis judul point dan penjelasan pada baris yang sama. ` +
-    `Sub-point TIDAK WAJIB menggunakan simbol –. ` +
-    `Gunakan – hanya jika memang ada keterangan turunan yang benar-benar diperlukan. ` +
-    `Semua numbering dan sub-point WAJIB rata kiri. ` +
-    `Jangan menggunakan indentasi manual atau spasi panjang. ` +
-    `Gunakan tepat 1 baris kosong saat berpindah dari satu main point ke main point berikutnya. ` +
-    `Jangan membuat 2 baris kosong. ` +
-    `Awal point boleh memakai BOLD untuk kata penting. ` +
-    `Jika menggunakan code block, gunakan triple backtick standar. ` +
-    `Jika ada beberapa code block, judul code block harus dekat dan langsung berada di atas block terkait. ` +
-    `Jangan menampilkan marker backend atau instruksi internal.]`;
+    `Judul berdiri sendiri lalu langsung lanjut ke main point pada baris berikutnya. ` +
+    `JANGAN membuat baris kosong setelah judul. ` +
+    `Main point boleh menggunakan nomor 1., 2., 3. dan tetap rata kiri. ` +
+    `Penjelasan lanjutan main point wajib sedikit masuk. ` +
+    `Sub-point hanya gunakan jika memang ada sub-point; jangan membuat • untuk setiap kalimat. ` +
+    `Sub-point wajib memiliki indentasi/spasi. ` +
+    `Baris lanjutan sub-point wajib tetap masuk dan tidak boleh kembali ke kiri. Jangan memecah satu main point atau sub-point menjadi beberapa baris manual hanya untuk mengatur tampilan. Jika kalimat panjang, lanjutkan dengan spasi dan biarkan Telegram melakukan wrapping sendiri. Gunakan ENTER hanya untuk pergantian bait, main point, atau sub-point baru.` +
+    `Setelah main point selesai, gunakan tepat 1 baris kosong sebelum main point berikutnya. ` +
+    `Jangan gunakan 2 baris kosong. ` +
+    `Awal main point/sub-point sebaiknya memiliki kata penting yang BOLD. ` +
+    `Jangan menampilkan marker internal, simbol >>, atau marker backend.]`;
             const aiButtonCount =
     Math.random() < 0.55
         ? 2
         : 3;
 
 const buttonReminder =
-    `[INFO SISTEM: TOMBOL INTERAKTIF MUTLAK. ` +
-    `Jika keyboard diperlukan, JANGAN pernah menulis [Keyboard], Keyboard, atau object tombol mentah. ` +
-    `WAJIB gunakan syntax persis: <<<BUTTONS: [{\"text\":\"label\",\"callback_data\":\"ask|aksi\"}]>>> ` +
-    `callback_data boleh berupa aksi singkat dan backend akan memprosesnya. ` +
-    `Untuk obrolan santai murni, random chat, sapaan, candaan, gabut, atau roasting tanpa topik jelas: jangan membuat tombol. ` +
-    `Untuk pertanyaan/topik jelas dengan lanjutan yang berguna: boleh membuat 1 sampai 3 tombol yang benar-benar relevan. ` +
-    `Jangan membuat tombol hanya agar pesan terlihat ramai.]`;
+    `[INFO SISTEM: Tentukan sendiri apakah keyboard akan membantu user. ` +
+    `Untuk pertanyaan yang punya lanjutan jelas, BUAT tepat ${aiButtonCount} tombol. ` +
+    `Untuk obrolan yang kosong, gabut, bosen, random, atau user terlihat ingin ditemani ngobrol, ` +
+    `AI BOLEH dan dianjurkan membuat tepat 2 tombol yang terasa relate meskipun belum ada tugas spesifik. ` +
+    `AI sendiri yang menentukan teks tombol, emoji, callback_data, URL, dan topiknya berdasarkan konteks terbaru. ` +
+    `Jangan membuat tombol generik yang terasa dipaksakan. ` +
+    `Jika tombol benar-benar tidak membantu, jangan membuat tombol.]`;
 
-const styleInstruction =
-    buildResponseStyleInstruction(
-        text
-    );
-
-const finalPrompt =
-    `${currentTimeInstruction}\n` +
-    `${styleInstruction}\n` +
-    `${userStatusInstruction}\n` +
-    `${formatReminder}\n` +
-    `${buttonReminder}\n\n` +
-    `${mediaResult.finalPrompt}`;
+const finalPrompt = `${currentTimeInstruction}\n${userStatusInstruction}\n${formatReminder}\n${buttonReminder}\n\n${mediaResult.finalPrompt}`;
             response = await askAI(chatId, finalPrompt, mediaResult.base64Media, mediaResult.mimeTypeMedia, msg.message_id);
         } finally {
             stopRecordingPresence();
