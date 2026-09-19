@@ -2086,69 +2086,6 @@ if (needsWebSearch) {
         }
     }
 }
-    let stopSearchStatus = null;
-
-    try {
-        console.log(
-            `[WEB SEARCH] Query user: ${cleanSearchIntent.slice(0, 200)}`
-        );
-
-        console.log(
-            `[WEB SEARCH] Context: ${String(searchHistoryContext).slice(0, 500)}`
-        );
-
-        if (
-            !isSearchCached(
-                cleanSearchIntent,
-                searchHistoryContext
-            )
-        ) {
-            stopSearchStatus =
-                await startWebSearchStatusBubble(
-                    chatId,
-                    replyToId,
-                    cleanSearchIntent
-                );
-
-            const webData =
-                await searchWeb(
-                    cleanSearchIntent,
-                    searchHistoryContext
-                );
-
-            latestWebSearchByChat.set(
-                String(chatId),
-                Array.isArray(webData.results)
-                    ? webData.results.slice(0, 10)
-                    : []
-            );
-
-            webContext =
-                formatWebResultsForAI(
-                    webData
-                );
-
-            console.log(
-                `[WEB SEARCH] Provider: ${webData.provider} | Hasil: ${webData.results.length}`
-            );
-
-            console.log(
-                `[WEB SEARCH] Query aktual: ${webData.searchQuery}`
-            );
-        }
-
-    } catch (webError) {
-        console.error(
-            '[WEB SEARCH FAILED]',
-            webError.message
-        );
-
-    } finally {
-        if (stopSearchStatus) {
-            stopSearchStatus();
-        }
-    }
-}
 
 const history = historyFor(chatId);
     const contents = history.map(h => ({
