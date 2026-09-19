@@ -620,7 +620,7 @@ const MENU_COMMAND_ROWS = [
         description: 'aktifkan kembali AI',
         owner: false
     }
-];
+]; 
 
 // ============================================================
 // RANDOM MENU RECOMMENDATION ENGINE
@@ -778,32 +778,20 @@ function buildMenuCommandTable() {
             item => !item.owner
         );
 
-    const commandWidth = 28;
-
     const makeRow =
-        item => {
-            const command =
-                String(item.command || '')
-                    .padEnd(
-                        commandWidth,
-                        ' '
-                    );
-
-            return (
-                `│ ${command} → ${item.description}`
-            );
-        };
+        item =>
+            `│ ${item.command} » ${item.description}`;
 
     return [
-        '┌──────────────────────────────────────────────',
-        '│ OWNER',
-        '├──────────────────────────────────────────────',
+        '╭────────────────────────╮',
+        '│ OWNER                            │',
+        '├────────────────────────┤',
         ...owner.map(makeRow),
-        '├──────────────────────────────────────────────',
-        '│ USER',
-        '├──────────────────────────────────────────────',
+        '├────────────────────────┤',
+        '│ USER                             │',
+        '├────────────────────────┤',
         ...user.map(makeRow),
-        '└──────────────────────────────────────────────'
+        '╰────────────────────────╯'
     ].join('\n');
 }
 
@@ -814,13 +802,14 @@ function buildMenuText() {
     return (
         `<b>COMMAND CENTER</b>\n\n` +
 
-        `<code>${table}</code>\n` +
+        `${table}\n\n` +
 
-         `<blockquote>` +
+        `<blockquote>` +
         `<b>FUNGSI</b>\n` +
         `Semua command utama dikumpulkan di sini biar akses bot rapi dan gampang dicari. ` +
-        `Tombol di bawah adalah rekomendasi aktivitas yang dipilih secara acak sesuai fitur yang tersedia.` +
-        `</blockquote>\n\n` + 
+        `Tombol di bawah adalah rekomendasi aktivitas yang dipilih secara acak.` +
+        `</blockquote>\n` +
+
         `<blockquote>` +
         `<b>OWNER</b>\n` +
         `Command owner tetap ditampilkan supaya struktur sistem bisa dilihat semua user, ` +
@@ -2393,47 +2382,297 @@ async function processAIResponse(
         text = text.replace(fileRegex, '').trim();
     }
 
-    // 3. EXTRACT BUTTONS (NEW SAFE SYNTAX <<<BUTTONS: [...]>>>)
-    let inline_keyboard = [];
-    const buttonRegex = /<<<BUTTONS:\s*(\[.*?\])\s*>>>/is;
-    const btnMatch = text.match(buttonRegex);
-    if (btnMatch) {
-        try {
-            const aiButtons = JSON.parse(btnMatch[1]);
-            const validButtons = [];
-            if (Array.isArray(aiButtons)) {
-                for (const original of aiButtons) {
-                    if (!original || typeof original !== 'object') continue;
-                    const btnText = String(original.text || '').trim();
-                    const url = String(original.url || '').trim();
-                    const callbackData = String(original.callback_data || '').trim();
+    // 3. EXTRACT BUTTONS (STRICT CONTEXT SYNTAX)
 
-                    if (!btnText) continue;
-                    if (callbackData && callbackData.startsWith('ask|')) {
-                        let safeCallback = callbackData;
-                        if (Buffer.byteLength(safeCallback, 'utf8') > 64) {
-                            safeCallback = Buffer.from(safeCallback, 'utf8').subarray(0, 64).toString('utf8');
-                        }
-                        validButtons.push({ text: btnText, callback_data: safeCallback });
-                        continue;
+let inline_keyboard = [];
+
+function compactButtonLabel(value) {
+    const raw =
+        String(value || '')
+            .replace(/\s+/g, ' ')
+            .trim();
+
+    if (!raw) {
+        return '';
+    }
+
+    const prefixMatch =
+        raw.match(/^[^\p{L}\p{N}]*/u);
+
+    const prefix =
+        prefixMatch?.[0] || '';
+
+    const body =
+        raw
+            .slice(prefix.length)
+            .trim();
+
+    const words =
+        body
+            .split(/\s+/)
+            .filter(Boolean)
+            .slice(0, 3);
+
+    if (!words.length) {
+        return prefix.trim();
+    }
+
+    return (
+        `${prefix ? prefix + ' ' : ''}` +
+        words.join(' ')
+    ).trim();
+}
+
+function extractTopicWords(source) {
+    const stopWords = new Set([
+        'apa', 'siapa', 'kapan', 'dimana', 'di',
+        'mana', 'kenapa', 'mengapa', 'gimana',
+        'bagaimana', 'berapa', 'yang', 'dan',
+        'atau', 'ini', 'itu', 'tadi', 'nih',
+        'sih', 'dong', 'deh', 'ga', 'gak',
+        'nggak', 'enggak', 'tau', 'tahu',
+        'gw', 'gua', 'gue', 'lu', 'lo',
+        'aku', 'kamu', 'saya', 'tolong',
+        'coba', 'bisa', 'boleh', 'kasih',
+        'buat', 'bikin', 'mau', 'ada',
+        'lagi', 'tentang', 'soal',
+        'dong', 'woy', 'bang', 'cok'
+    ]);
+
+    return [
+        ...new Set(
+            String(source || '')
+                .toLowerCase()
+                .replace(
+                    /https?:\/\/\S+/gi,
+                    ''
+                )
+                .replace(
+                    /[^\p{L}\p{N}\s@.-]/gu,
+                    ' '
+                )
+                .split(/\s+/)
+                .filter(Boolean)
+                .filter(word =>
+                    !stopWords.has(word)
+                )
+                .filter(word =>
+                    word.length >= 3 ||
+                    /^\d+$/.test(word)
+                )
+        )
+    ];
+}
+
+function buttonIsStrictlyRelated(
+    button,
+    sourcePrompt,
+    answerText
+) {
+    const buttonText =
+        String(button?.text || '')
+            .toLowerCase();
+
+    const callbackData =
+        String(button?.callback_data || '')
+            .toLowerCase();
+
+    const combinedButton =
+        `${buttonText} ${callbackData}`;
+
+    const bannedGeneric =
+        [
+            'bahas ini',
+            'bahas itu',
+            'bahas lebih lanjut',
+            'bahas ini lagi',
+            'jelasin lebih detail',
+            'jelaskan lebih detail',
+            'kasih contoh',
+            'tanya sesuatu',
+            'lanjut',
+            'detailnya',
+            'lebih detail',
+            'info lainnya',
+            'lihat lainnya'
+        ];
+
+    if (
+        bannedGeneric.some(
+            phrase =>
+                combinedButton.includes(phrase)
+        )
+    ) {
+        return false;
+    }
+
+    const topicWords =
+        extractTopicWords(
+            `${sourcePrompt} ${String(answerText || '').slice(0, 1200)}`
+        );
+
+    if (!topicWords.length) {
+        return false;
+    }
+
+    const overlap =
+        topicWords.filter(word =>
+            combinedButton.includes(word)
+        );
+
+    /*
+     * Minimal harus ada anchor topik.
+     *
+     * Contoh VALID:
+     * source:
+     * "umur yuki kato?"
+     *
+     * button:
+     * "👩🏻‍💼 Umur Yuki Kato"
+     *
+     * overlap:
+     * umur / yuki / kato
+     *
+     * Contoh INVALID:
+     * "💡 Kasih contoh"
+     *
+     * tidak punya anchor topik.
+     */
+    return overlap.length >= 1;
+}
+
+const buttonRegex =
+    /<<<BUTTONS:\s*(\[.*?\])\s*>>>/is;
+
+const btnMatch =
+    text.match(buttonRegex);
+
+if (btnMatch) {
+    try {
+        const aiButtons =
+            JSON.parse(btnMatch[1]);
+
+        const validButtons = [];
+
+        if (Array.isArray(aiButtons)) {
+            for (const original of aiButtons) {
+                if (
+                    !original ||
+                    typeof original !== 'object'
+                ) {
+                    continue;
+                }
+
+                const btnText =
+                    compactButtonLabel(
+                        original.text
+                    );
+
+                const url =
+                    String(
+                        original.url || ''
+                    ).trim();
+
+                const callbackData =
+                    String(
+                        original.callback_data || ''
+                    ).trim();
+
+                if (!btnText) {
+                    continue;
+                }
+
+                const isContextValid =
+                    buttonIsStrictlyRelated(
+                        {
+                            text: btnText,
+                            callback_data:
+                                callbackData
+                        },
+                        sourcePrompt,
+                        text
+                    );
+
+                if (!isContextValid) {
+                    console.warn(
+                        '[BUTTON REJECTED] Tidak cukup relate:',
+                        btnText,
+                        callbackData
+                    );
+                    continue;
+                }
+
+                if (
+                    callbackData &&
+                    callbackData.startsWith(
+                        'ask|'
+                    )
+                ) {
+                    let safeCallback =
+                        callbackData;
+
+                    if (
+                        Buffer.byteLength(
+                            safeCallback,
+                            'utf8'
+                        ) > 64
+                    ) {
+                        safeCallback =
+                            Buffer.from(
+                                safeCallback,
+                                'utf8'
+                            )
+                                .subarray(0, 64)
+                                .toString('utf8');
                     }
-                    if (url && /^https?:\/\/\S+$/i.test(url)) {
-                        validButtons.push({ text: btnText, url });
-                    }
-                    if (validButtons.length >= 3) break;
+
+                    validButtons.push({
+                        text: btnText,
+                        callback_data:
+                            safeCallback
+                    });
+
+                    continue;
+                }
+
+                if (
+                    url &&
+                    /^https?:\/\/\S+$/i.test(url)
+                ) {
+                    validButtons.push({
+                        text: btnText,
+                        url
+                    });
+                }
+
+                if (
+                    validButtons.length >= 3
+                ) {
+                    break;
                 }
             }
+        }
+
         if (validButtons.length > 0) {
-            inline_keyboard = [validButtons.slice(0, 3)];
+            inline_keyboard = [
+                validButtons.slice(0, 3)
+            ];
         }
     } catch (error) {
-        console.error('[BUTTON PARSER ERROR]', error.message);
+        console.error(
+            '[BUTTON PARSER ERROR]',
+            error.message
+        );
     }
-    text = text.replace(buttonRegex, '').trim();
+
+    text =
+        text
+            .replace(buttonRegex, '')
+            .trim();
 }
 
 // ============================================================
-// FIX BUTTON AM PREM + AI-GENERATED BUTTONS
+//  AM PREM + AI-GENERATED BUTTONS
 // ============================================================
 if (isAlightMotionTopic(sourcePrompt)) {
     imageToSent = AM_PREM_IMAGE_URL;
@@ -2489,73 +2728,244 @@ function shouldShowContextButtons(chatId) {
     return show;
 }
 
-function buildContextButtons(sourcePrompt) {
-    const topic = String(sourcePrompt || '')
-        .replace(/\s+/g, ' ')
-        .trim();
+function buildContextButtons(
+    sourcePrompt,
+    answerText = ''
+) {
+    const rawSource =
+        String(sourcePrompt || '')
+            .replace(/\s+/g, ' ')
+            .trim();
 
-    if (!topic) {
+    if (!rawSource) {
         return [];
     }
 
-    const shortTopic =
-        topic.length > 45
-            ? topic.slice(0, 45).trim() + '…'
-            : topic;
+    const sourceLower =
+        rawSource.toLowerCase();
 
-    // 3 TYPE:
-    // 1. semua pakai emoji
-    // 2. campuran emoji + tanpa emoji
-    // 3. tanpa emoji
+    const topicWords =
+        extractTopicWords(
+            `${rawSource} ${String(answerText || '').slice(0, 1200)}`
+        );
+
+    if (!topicWords.length) {
+        return [];
+    }
+
+    /*
+     * Ambil maksimum 3 anchor penting.
+     *
+     * Prioritas:
+     * - kata yang muncul sebagai topik nyata
+     * - nama/orang
+     * - angka penting
+     * - istilah spesifik
+     */
+    const anchorWords =
+        topicWords.slice(0, 3);
+
+    const anchor =
+        anchorWords.join(' ');
+
+    if (!anchor) {
+        return [];
+    }
+
+    const hasPersonIntent =
+        /(?:siapa|umur|usia|nama|aktor|aktris|pemain|orang|profil)/i
+            .test(rawSource);
+
+    const hasSchoolIntent =
+        /(?:smp|sma|sekolah|kampus|universitas|sekolah)/i
+            .test(rawSource);
+
+    const hasLocationIntent =
+        /(?:lokasi|alamat|dimana|daerah|kota|tempat)/i
+            .test(rawSource);
+
+    const hasPriceIntent =
+        /(?:harga|biaya|berapa|jual|beli|prem|premium)/i
+            .test(rawSource);
+
+    const hasCodingIntent =
+        /(?:coding|kode|script|error|bug|javascript|html|css|api|program)/i
+            .test(rawSource);
+
+    const hasFootballIntent =
+        /(?:bola|persija|tim|klub|pemain|liga|gol|match|pertandingan)/i
+            .test(rawSource);
+
+    const hasQuestionWhy =
+        /(?:kenapa|mengapa|alasan|penyebab)/i
+            .test(rawSource);
+
+    const hasHowIntent =
+        /(?:gimana|bagaimana|cara|caranya)/i
+            .test(rawSource);
+
+    /*
+     * 3 TYPE EMOJI TETAP.
+     *
+     * TYPE 0 = semua pakai emoji
+     * TYPE 1 = campuran
+     * TYPE 2 = tanpa emoji
+     */
     const emojiMode =
-        Math.floor(Math.random() * 3);
+        Math.floor(
+            Math.random() * 3
+        );
 
-    let buttons;
+    let labels = [];
 
-    if (emojiMode === 0) {
-        buttons = [
-            {
-                text: '🧠 bahas ini lagi',
-                callback_data:
-                    `ask|bahas lebih lanjut tentang ${shortTopic}`
-            },
-            {
-                text: '💡 kasih contoh',
-                callback_data:
-                    `ask|kasih contoh yang masih berkaitan dengan ${shortTopic}`
-            }
+    if (hasPersonIntent) {
+        labels = [
+            'Umur ' + anchor,
+            'Profil ' + anchor,
+            'Karier ' + anchor
         ];
 
-    } else if (emojiMode === 1) {
-        buttons = [
-            {
-                text: '😹 bahas bagian ini',
-                callback_data:
-                    `ask|bahas bagian ini tentang ${shortTopic}`
-            },
-            {
-                text: 'jelasin lebih detail',
-                callback_data:
-                    `ask|jelaskan lebih detail tentang ${shortTopic}`
-            }
+    } else if (hasSchoolIntent) {
+        labels = [
+            'Info ' + anchor,
+            'Lokasi ' + anchor,
+            'Fakta ' + anchor
+        ];
+
+    } else if (hasLocationIntent) {
+        labels = [
+            'Lokasi ' + anchor,
+            'Info ' + anchor,
+            'Akses ' + anchor
+        ];
+
+    } else if (hasPriceIntent) {
+        labels = [
+            'Harga ' + anchor,
+            'Fitur ' + anchor,
+            'Beli ' + anchor
+        ];
+
+    } else if (hasCodingIntent) {
+        labels = [
+            'Bug ' + anchor,
+            'Fix ' + anchor,
+            'Solusi ' + anchor
+        ];
+
+    } else if (hasFootballIntent) {
+        labels = [
+            'Statistik ' + anchor,
+            'Prestasi ' + anchor,
+            'Laga ' + anchor
+        ];
+
+    } else if (hasQuestionWhy) {
+        labels = [
+            'Kenapa ' + anchor,
+            'Penyebab ' + anchor,
+            'Dampak ' + anchor
+        ];
+
+    } else if (hasHowIntent) {
+        labels = [
+            'Cara ' + anchor,
+            'Langkah ' + anchor,
+            'Tips ' + anchor
         ];
 
     } else {
-        buttons = [
-            {
-                text: 'bahas ini lagi',
-                callback_data:
-                    `ask|bahas lebih lanjut tentang ${shortTopic}`
-            },
-            {
-                text: 'kasih contoh',
-                callback_data:
-                    `ask|kasih contoh yang masih berkaitan dengan ${shortTopic}`
-            }
+        /*
+         * Kalau tidak punya intent spesifik:
+         * GUNAKAN ANCHOR TOPIK LANGSUNG.
+         *
+         * bukan:
+         * "bahas ini"
+         *
+         * tapi:
+         * "Yuki Kato"
+         * "SMP 40 Bekasi"
+         * "Heart Series"
+         */
+        labels = [
+            anchor,
+            `Fakta ${anchor}`,
+            `Detail ${anchor}`
         ];
     }
 
-    return [buttons];
+    const emojiPool = [
+        ['👩🏻‍💼', '🎬', '📸'],
+        ['🏫', '📍', '🎓'],
+        ['📍', '🗺️', '🏙️'],
+        ['💸', '📦', '🛒'],
+        ['🐛', '🛠️', '💡'],
+        ['⚽', '🏆', '🔥'],
+        ['🤔', '🧠', '💥'],
+        ['🛠️', '⚙️', '🚀'],
+        ['📌', '🧠', '👀']
+    ];
+
+    const chosenEmoji =
+        emojiPool[
+            Math.floor(
+                Math.random() *
+                emojiPool.length
+            )
+        ];
+
+    const formatted =
+        labels
+            .slice(0, 3)
+            .map((label, index) => {
+                let prefix = '';
+
+                if (emojiMode === 0) {
+                    prefix =
+                        chosenEmoji[index] || '';
+
+                } else if (emojiMode === 1) {
+                    prefix =
+                        index === 0
+                            ? chosenEmoji[0]
+                            : '';
+
+                }
+
+                return compactButtonLabel(
+                    `${prefix ? prefix + ' ' : ''}${label}`
+                );
+            })
+            .filter(Boolean);
+
+    const buttons = [];
+
+    for (const label of formatted) {
+        const isRelated =
+            buttonIsStrictlyRelated(
+                {
+                    text: label,
+                    callback_data:
+                        `ask|${label}`
+                },
+                rawSource,
+                answerText
+            );
+
+        if (!isRelated) {
+            continue;
+        }
+
+        buttons.push({
+            text: label,
+            callback_data:
+                `ask|${label}`
+        });
+    }
+
+    return buttons.length
+        ? [buttons.slice(0, 3)]
+        : [];
 }
 
 // AI tetap boleh membuat tombol sendiri.
@@ -2578,7 +2988,10 @@ if (
     shouldShowContextButtons(chatId)
 ) {
     inline_keyboard =
-        buildContextButtons(sourceText);
+        buildContextButtons(
+            sourceText,
+            text
+        );
 }
 
 if (!text && !imageToSent && !fileToSend) {
@@ -2728,13 +3141,6 @@ if (
 } else {
     delete finalReplyOptions.reply_markup;
 }
-
-await sendReply(
-    bot,
-    chatId,
-    text,
-    finalReplyOptions
-);
 
 await sendReply(
     bot,
@@ -2955,20 +3361,42 @@ await bot.answerCallbackQuery(
     }
 );
 try {
-    await bot.editMessageReplyMarkup(
-        {
-            inline_keyboard: []
-        },
-        {
-            chat_id: chatId,
-            message_id:
-                buttonMessageId
-        }
-    );
-} catch (e) {
-}
+    const currentKeyboard =
+        query.message?.reply_markup?.inline_keyboard;
 
-        
+    if (Array.isArray(currentKeyboard)) {
+        const updatedKeyboard =
+            currentKeyboard
+                .map(row =>
+                    Array.isArray(row)
+                        ? row.filter(button =>
+                            String(
+                                button?.callback_data || ''
+                            ) !== data
+                        )
+                        : []
+                )
+                .filter(row => row.length > 0);
+
+        await bot.editMessageReplyMarkup(
+            {
+                inline_keyboard:
+                    updatedKeyboard
+            },
+            {
+                chat_id: chatId,
+                message_id:
+                    buttonMessageId
+            }
+        );
+    }
+} catch (e) {
+    console.warn(
+        '[BUTTON REMOVE]',
+        e.message
+    );
+}
+      
         const finalPrompt =
             `[INFO SISTEM: Pengguna menekan tombol interaktif.]\n` +
             `[INFO SISTEM: Tombol tersebut berisi instruksi yang harus diproses sebagai pesan pengguna.]\n` +

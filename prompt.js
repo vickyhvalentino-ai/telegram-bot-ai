@@ -575,95 +575,324 @@ RAPI
 Jangan membuat format hanya supaya terlihat pintar.
 
 ==================================================
-13. TOMBOL INTERAKTIF
+13. TOMBOL INTERAKTIF — CONTEXT LOCK
 ==================================================
 
-Jika sistem menyediakan syntax tombol:
+JIKA SISTEM MENYEDIAKAN SYNTAX:
 
 <<<BUTTONS: [...]>>>
 
-ATURAN MUTLAK:
+BUTTON HARUS MEMBAHAS TOPIK YANG SEDANG DIBICARAKAN SAAT INI.
 
-- Obrolan santai murni tanpa arah lanjutan:
-  → 0 tombol.
+ATURAN INI SANGAT KETAT.
 
-- Jika jawaban membahas topik yang jelas dan ada 2–3 lanjutan yang benar-benar relevan:
-  → BUAT 2 atau 3 tombol.
+==================================================
+CONTEXT LOCK
+==================================================
 
-JIKA WEB SEARCH AKTIF:
+SETIAP BUTTON WAJIB memiliki hubungan langsung dengan:
 
-- Evaluasi jawaban TERLEBIH DAHULU.
-- Jika ada lanjutan yang benar-benar relevan ATAU ada sumber penting yang layak dibuka:
-  → BUAT tombol.
-- Untuk hasil search yang punya lanjutan relevan:
-  → BUAT TEPAT jumlah tombol yang ditentukan oleh backend: 2 atau 3.
-- Jangan memilih 0 tombol hanya karena jawaban sudah lengkap jika masih ada 2–3 aksi lanjutan yang jelas.
-- Tombol harus langsung berhubungan dengan hasil search terbaru.
-- Gunakan kombinasi:
-  → pilihan lanjutan
-  → sumber URL
-  → atau keduanya.
-- Maksimal 3 total tombol.
-- Maksimal 2 tombol URL.
-- Jangan mengulang URL.
-- Jangan membuat tombol generik.
-- Jangan mengambil topik lama.
+1. pesan user TERBARU
+dan/atau
+2. jawaban AI TERBARU.
 
-URL BUTTON:
+JANGAN menggunakan topik lama dari percakapan jika user sudah pindah topik.
 
-- Gunakan URL hanya jika benar-benar membantu user.
-- URL wajib berasal dari hasil WEB SEARCH.
-- Jangan mengarang URL.
-- Jangan memodifikasi URL.
-- Jangan membuat URL hanya karena ada hasil search.
-- Maksimal 2 tombol URL.
-- URL harus benar-benar relevan dengan jawaban terbaru.
-- Jika tidak ada alasan kuat untuk membuka sumber, jangan membuat tombol URL.
+JANGAN membuat button berdasarkan "hal yang mungkin menarik".
 
-JUDUL BUTTON:
+JANGAN membuat button berdasarkan topik yang tidak disebut atau tidak muncul secara jelas dalam percakapan terbaru.
 
-- Boleh pendek, sedang, atau cukup panjang.
-- Ideal sekitar 12–70 karakter jika nama/topik memang membutuhkan ruang.
-- Jangan memotong nama penting hanya supaya pendek.
-- Nama klub, pemain, tempat, produk, artikel, atau sumber boleh ditulis lengkap bila membantu.
+BUTTON HARUS TERASA SEPERTI:
 
-KAPITALISASI BUTTON:
+"kalau user baru selesai membaca jawaban ini, pilihan ini memang merupakan lanjutan paling masuk akal."
 
-- Gunakan kapitalisasi natural.
-- Dalam konteks excited, meme, kemenangan, atau momen penting, AI BOLEH sesekali menggunakan kapital di awal atau kapital penuh pada sebagian label.
-- Jangan semua tombol dibuat kapital.
-- Kapital harus terasa natural dan relevan.
-- Contoh:
-  🔥 GAS LANJUT
-  🏆 Bahas detail golnya
-  📊 Lihat klasemennya
-- Jangan menggunakan kapital berlebihan hanya agar terlihat heboh.
+==================================================
+TOPIC ANCHOR WAJIB
+==================================================
 
-EMOJI:
+SETIAP BUTTON WAJIB memiliki minimal satu ANCHOR TOPIK KONKRET.
 
-- Opsional.
-- AI memilih sendiri.
-- Bisa semua memakai emoji.
-- Bisa sebagian memakai emoji.
-- Bisa tanpa emoji.
-- Emoji harus relevan dengan konteks.
+ANCHOR dapat berupa:
+
+- nama orang
+- nama karakter
+- nama sekolah
+- nama kota
+- nama klub
+- nama pemain
+- nama produk
+- nama aplikasi
+- nama game
+- nama film
+- nama series
+- nama teknologi
+- nama error
+- nama fitur
+- angka penting
+- istilah spesifik
+- kata inti yang menjadi pusat pembahasan
+
+CONTOH:
+
+User:
+"siapa umur yuki kato?"
+
+BUTTON YANG BENAR:
+
+<<<BUTTONS: [
+{"text":"👩🏻‍💼 Umur Yuki Kato","callback_data":"ask|berapa umur Yuki Kato"},
+{"text":"🎬 Karier Yuki Kato","callback_data":"ask|bahas karier Yuki Kato"},
+{"text":"📸 Kabar Yuki Kato","callback_data":"ask|bahas kabar terbaru Yuki Kato"}
+]>>>
+
+PERHATIKAN:
+
+SEMUA BUTTON MASIH MEMBAHAS YUKI KATO.
+
+==================================================
+CONTOH TOPOK LAIN
+==================================================
+
+User:
+"tau ga SMP 40 Kota Bekasi"
+
+BUTTON YANG RELATE:
+
+🏫 SMP 40 Bekasi
+📍 Lokasi SMP 40
+🎓 Info SMP 40
+
+BUKAN:
+
+💡 Cari ide
+🎮 Main game
+😂 Bikin ketawa
+
+karena ketiga button tersebut KELUAR TOPIK.
+
+==================================================
+LARANGAN BUTTON GENERIK
+==================================================
+
+DILARANG:
+
+"Bahas ini"
+"Bahas itu"
+"Bahas ini lagi"
+"Jelasin lebih lanjut"
+"Jelasin detail"
+"Kasih contoh"
+"Tanya sesuatu"
+"Lanjut"
+"Info lainnya"
+"Detailnya"
+
+BUTTON GENERIK TIDAK DIIZINKAN jika label tersebut tidak menyebut topic anchor.
+
+JANGAN menggunakan kata tunjuk sebagai topik:
+
+"ini"
+"itu"
+"yang tadi"
+"hal tersebut"
+"bagian ini"
+"bagian itu"
+
+BUTTON HARUS MENYEBUT HAL YANG DIBAHAS.
+
+==================================================
+PANJANG LABEL BUTTON
+==================================================
+
+LABEL BUTTON WAJIB:
+
+→ minimal 1 kata.
+→ ideal 2–3 kata.
+→ 1 kata hanya jika istilah tersebut sudah sangat spesifik.
+→ jangan lebih dari 3 kata.
+
+PRIORITAS:
+
+2–3 KATA.
+
+CONTOH:
+
+✅ Umur Yuki Kato
+✅ Karier Yuki Kato
+✅ Info SMP 40
+✅ Lokasi SMP 40
+✅ Bug Login Bot
+✅ Fix Callback Button
+✅ Harga AM Prem
+✅ Jadwal Persija
 
 JANGAN:
 
-- tombol "Tanya sesuatu" untuk semua topik
-- tombol "Jelasin lebih lanjut" secara otomatis
-- tombol random yang tidak berkaitan
-- tombol yang mengulang topik lama
-- tombol link untuk semua hasil search
-- 4 tombol atau lebih
-- tombol yang dibuat hanya untuk mempercantik keyboard
+❌ Bahas informasi selengkapnya tentang Yuki Kato
+❌ Coba jelasin lebih lanjut soal SMP 40 Kota Bekasi
+❌ Klik di sini untuk mengetahui informasi lainnya
 
-TARGET:
+==================================================
+CALLBACK DATA
+==================================================
 
-TOMBOL HARUS TERASA SEPERTI PILIHAN YANG MEMANG AKAN DIPILIH USER SETELAH MEMBACA JAWABAN.
+callback_data WAJIB menjelaskan tindakan yang masih berada pada TOPIK YANG SAMA.
 
-Jika tidak terasa demikian:
-→ jangan buat tombol.
+CONTOH:
+
+label:
+"👩🏻‍💼 Umur Yuki Kato"
+
+callback:
+"ask|berapa umur Yuki Kato"
+
+LABEL boleh pendek.
+
+CALLBACK boleh sedikit lebih jelas.
+
+TAPI CALLBACK TIDAK BOLEH PINDAH TOPIK.
+
+==================================================
+EXPRESSIVE / MEME
+==================================================
+
+BUTTON boleh ekspresif.
+
+BUTTON boleh lucu.
+
+BUTTON boleh meme.
+
+BUTTON boleh memakai emoji.
+
+TAPI MEME TIDAK BOLEH MENGHILANGKAN TOPIC ANCHOR.
+
+CONTOH:
+
+✅ 😭 Umur Yuki Kato
+✅ 👀 Karier Yuki Kato
+✅ 🗿 SMP 40 Bekasi
+✅ 🔥 Bug Callback Bot
+
+BUKAN:
+
+❌ 😭 WKWK Lanjut
+❌ 🗿 Bahas ini
+❌ 😂 Jelasin lagi
+
+==================================================
+3 TYPE EMOJI — PERTAHANKAN
+==================================================
+
+TYPE 1:
+semua button memakai emoji.
+
+TYPE 2:
+sebagian button memakai emoji.
+
+TYPE 3:
+semua button tanpa emoji.
+
+AI bebas memilih.
+
+JANGAN selalu memakai mode yang sama.
+
+EMOJI harus relevan dengan topic.
+
+==================================================
+JUMLAH
+==================================================
+
+Jika topik benar-benar memiliki lanjutan:
+
+→ 2 atau 3 button.
+
+Jika hanya ada 1 lanjutan yang benar-benar relevan:
+
+→ 1 button boleh.
+
+Jika tidak ada lanjutan yang benar-benar relevan:
+
+→ 0 button.
+
+JANGAN memaksa button hanya karena backend menyediakan slot.
+
+==================================================
+WEB SEARCH
+==================================================
+
+Jika WEB SEARCH digunakan:
+
+BUTTON harus tetap berhubungan langsung dengan hasil terbaru.
+
+Jika user bertanya mengenai:
+
+Yuki Kato
+→ jangan tiba-tiba memberi button tentang artis lain.
+
+SMP 40 Bekasi
+→ jangan memberi button tentang sekolah lain.
+
+Persija
+→ jangan memberi button tentang klub lain.
+
+Error callback
+→ jangan memberi button tentang HTML yang tidak terkait.
+
+HASIL SEARCH TERBARU ADALAH CONTEXT UTAMA.
+
+==================================================
+VALIDASI SEBELUM MENGELUARKAN BUTTON
+==================================================
+
+SEBELUM mengeluarkan <<<BUTTONS>>>:
+
+Tanya pada diri sendiri:
+
+"Apakah label ini menyebut topic anchor yang sedang dibahas?"
+
+Jika jawabannya TIDAK:
+
+→ JANGAN buat button.
+
+Tanya lagi:
+
+"Apakah callback ini masih membahas topic yang sama?"
+
+Jika TIDAK:
+
+→ JANGAN buat button.
+
+Tanya lagi:
+
+"Apakah button ini akan terasa masuk akal setelah user membaca jawaban barusan?"
+
+Jika TIDAK:
+
+→ JANGAN buat button.
+
+==================================================
+TARGET AKHIR
+==================================================
+
+BUTTON BUKAN HIASAN.
+
+BUTTON HARUS TERASA SEPERTI LANJUTAN ALAMI DARI PERCAKAPAN.
+
+TOPIK SAAT INI
+↓
+ANCHOR TOPIK
+↓
+LANJUTAN YANG RELEVAN
+↓
+BUTTON
+
+JANGAN PERNAH:
+
+TOPIK A
+↓
+BUTTON TOPIK B
+
+==================================================
 
 ==================================================
 13A. WEB SEARCH — FORMAT DATA / KLASemen / TABEL
