@@ -2152,68 +2152,129 @@ async function askAI(chatId, finalPrompt, base64Media, mimeTypeMedia, replyToId 
                         const loadingDelay = Math.floor(Math.random() * 1000) + 2000; // 2000ms - 3000ms
                         await delay(loadingDelay);
 
-// 2. BUBBLE KEDUA (Server Penuh + Reconnect + Final)
-const animMsg = await bot.sendMessage(
-    chatId,
-    "Server penuh, Tunggu sebentar."
-);
+// ============================================================
+// 🔄 ROTATION STATUS — 1 BUBBLE, 3 PHASE
+// ⏳ Loading TETAP DI BUBBLE PERTAMA.
+// Bubble kedua:
+// Server penuh → Menghubungkan Ulang → AI Berevolusi
+// ============================================================
 
-const frames = [".", "..", "..."];
+const animMsg =
+    await bot.sendMessage(
+        chatId,
+        'Server penuh, Tunggu sebentar.'
+    );
+
+const frames = [
+    '.',
+    '..',
+    '...'
+];
+
+// TOTAL VISUAL = 5–9 DETIK
+// edit tetap cepat = 400ms
 const totalAnimationTime =
-    Math.floor(Math.random() * 4000) + 5000; // 5-9 detik
+    Math.floor(
+        Math.random() * 4000
+    ) + 5000;
+
 const interval = 400;
 
-// Server penuh dulu, baru reconnect.
-// Semuanya tetap dalam SATU bubble yang sama.
-const serverDuration =
-    Math.floor((totalAnimationTime * 0.55) / interval) * interval;
+/*
+ * Dibagi menjadi 2 fase:
+ *
+ * fase 1:
+ * Server penuh
+ *
+ * fase 2:
+ * Menghubungkan Ulang
+ *
+ * final:
+ * AI Berevolusi kembali ✅
+ *
+ * Total tetap 5–9 detik.
+ */
+
+const reconnectStart =
+    Math.floor(
+        totalAnimationTime * 0.55 / interval
+    ) * interval;
 
 const reconnectDuration =
-    totalAnimationTime - serverDuration;
+    totalAnimationTime -
+    reconnectStart;
 
-// SERVER PENUH
 let elapsed = 0;
 
-while (elapsed < serverDuration) {
+// ============================================================
+// PHASE 1 — SERVER PENUH
+// ============================================================
+
+while (
+    elapsed < reconnectStart
+) {
     const frame =
-        frames[Math.floor(elapsed / interval) % frames.length];
+        frames[
+            Math.floor(
+                elapsed / interval
+            ) % frames.length
+        ];
 
     await bot.editMessageText(
         `Server penuh, Tunggu sebentar${frame}`,
         {
             chat_id: chatId,
-            message_id: animMsg.message_id
+            message_id:
+                animMsg.message_id
         }
     ).catch(() => {});
 
     await delay(interval);
+
     elapsed += interval;
 }
 
-// MENGHUBUNGKAN ULANG
+// ============================================================
+// PHASE 2 — MENGHUBUNGKAN ULANG
+// ============================================================
+
 let reconnectElapsed = 0;
 
-while (reconnectElapsed < reconnectDuration) {
+while (
+    reconnectElapsed <
+    reconnectDuration
+) {
     const frame =
-        frames[Math.floor(reconnectElapsed / interval) % frames.length];
+        frames[
+            Math.floor(
+                reconnectElapsed / interval
+            ) % frames.length
+        ];
 
     await bot.editMessageText(
         `Menghubungkan Ulang${frame}`,
         {
             chat_id: chatId,
-            message_id: animMsg.message_id
+            message_id:
+                animMsg.message_id
         }
     ).catch(() => {});
 
     await delay(interval);
+
+    reconnectElapsed += interval;
 }
 
-// FINAL — MASIH BUBBLE YANG SAMA
+// ============================================================
+// FINAL
+// ============================================================
+
 await bot.editMessageText(
-    "AI Berevolusi kembali ✅",
+    'AI Berevolusi kembali ✅',
     {
         chat_id: chatId,
-        message_id: animMsg.message_id
+        message_id:
+            animMsg.message_id
     }
 ).catch(() => {});
 
