@@ -269,7 +269,7 @@ function displayName(msg) {
 }
 
 function isCommand(text) {
-    return /^(?:\/(?:start|help|menu|mute|unmute|status|reset|addvip|addlimit/ceklimit)(?:@\w+)?(?:\s|$))/i.test(
+    return /^(?:\/(?:start|help|menu|mute|unmute|status|reset|addvip|addlimit|ceklimit)(?:@\w+)?(?:\s|$))/i.test(
         String(text || '').trim()
     );
 }
