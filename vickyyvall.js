@@ -1982,43 +1982,38 @@ if (
             )
         ) {
             stopSearchStatus =
-    await startWebSearchStatusBubble(
-        chatId,
-        replyToId,
-        finalPrompt
-    );
+                await startWebSearchStatusBubble(
+                    chatId,
+                    replyToId,
+                    finalPrompt
+                );
 
-        const webData =
-            await searchWeb(
-                finalPrompt,
-                searchHistoryContext
+            const webData =
+                await searchWeb(
+                    finalPrompt,
+                    searchHistoryContext
+                );
+
+            latestWebSearchByChat.set(
+                String(chatId),
+                Array.isArray(webData.results)
+                    ? webData.results.slice(0, 10)
+                    : []
             );
 
-        latestWebSearchByChat.set(
-            String(chatId),
-            Array.isArray(
-                webData.results
-            )
-                ? webData.results.slice(
-                    0,
-                    10
-                )
-                : []
-        );
+            webContext =
+                formatWebResultsForAI(
+                    webData
+                );
 
-        webContext =
-            formatWebResultsForAI(
-                webData
+            console.log(
+                `[WEB SEARCH] Provider: ${webData.provider} | Hasil: ${webData.results.length}`
             );
 
-        console.log(
-            `[WEB SEARCH] Provider: ${webData.provider} | Hasil: ${webData.results.length}`
-        );
-
-        console.log(
-            `[WEB SEARCH] Query aktual: ${webData.searchQuery}`
-        );
-
+            console.log(
+                `[WEB SEARCH] Query aktual: ${webData.searchQuery}`
+            );
+        }
     } catch (webError) {
         console.error(
             '[WEB SEARCH FAILED]',
@@ -2032,18 +2027,23 @@ if (
 }
 
 const history = historyFor(chatId);
-    const contents = history.map(h => ({
-        role: h.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: h.content }]
-    }));
 
-    const parts = [{
+const contents = history.map(h => ({
+    role:
+        h.role === 'assistant'
+            ? 'model'
+            : 'user',
+    parts: [
+        {
+            text: h.content
+        }
+    ]
+}));
+
+const parts = [
+    {
         text: webContext
             ? `${finalPrompt}
-
-const parts = [{
-    text: webContext
-        ? `${finalPrompt}
 
 [SISTEM WEB SEARCH]
 
@@ -2075,8 +2075,9 @@ Jika hasil web benar-benar tidak cukup:
 HASIL WEB:
 
 ${webContext}`
-        : finalPrompt
-}];
+            : finalPrompt
+    }
+];
 
     if (base64Media) {
         parts.push({ inline_data: { mime_type: mimeTypeMedia || 'image/jpeg', data: base64Media } });
