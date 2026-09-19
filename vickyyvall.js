@@ -294,45 +294,58 @@ function buildResponseStyleInstruction(userText) {
             .trim();
 
     const technical =
-        /\b(?:tugas|sekolah|kuliah|makalah|laporan|coding|kode|script|javascript|typescript|html|css|json|config|debug|debugging|error|bug|tutorial|dokumentasi|analisis|penjelasan teknis|instruksi|program|fungsi|api|railway|telegram bot)\b/i
+        /\b(?:tugas|sekolah|kuliah|makalah|laporan|coding|kode|script|javascript|typescript|html|css|json|config|debug|debugging|error|bug|tutorial|dokumentasi|analisis|penjelasan teknis|instruksi|program|fungsi|api|railway|telegram bot|node\.js)\b/i
             .test(value);
 
     const strongCasual =
-        /(?:wkwk|wkwkwk|awokawok|awikwok|anjir|anjg|ajg|njir|jir|cok|bangsat|bangke|cuy|bray|ngab|gas|bro|💀|😭|🤣|😂|😹|🗿|🤡|🔥|😎)/i
+        /(?:wkwk|wkwkwk|awokawok|awikwok|anjir|anjg|ajg|njir|jir|cok|bangsat|bangke|cuy|bray|ngab|gas|bro|gabut|tolol|caper|😭|🤣|😂|😹|🗿|💀|🔥|😎)/
             .test(value);
 
     if (technical) {
         return (
             `[INFO GAYA RESPONS: USER SEDANG MEMINTA PENGERJAAN/TEKNIS. ` +
             `Gunakan bahasa Indonesia yang rapi dan profesional. ` +
-            `Judul utama boleh HURUF KAPITAL SEMUA. ` +
-            `Isi menggunakan kapitalisasi normal. ` +
-            `Gunakan struktur yang jelas. ` +
-            `Jangan membuat seluruh isi lowercase. ` +
-            `Jika memakai point, judul point berdiri sendiri dan penjelasan berada di baris berikutnya. ` +
-            `Sub-point hanya jika benar-benar membantu.]`
+            `Gunakan kapitalisasi normal. ` +
+            `Gunakan struktur yang jelas hanya jika memang diperlukan. ` +
+            `Gunakan ENTER yang jelas. ` +
+            `Gunakan code block untuk source code. ` +
+            `Jangan menggunakan gaya tongkrongan berlebihan. ` +
+            `Jangan membuat paragraf raksasa. ` +
+            `Jangan menambahkan basa-basi yang tidak diperlukan.]`
         );
     }
 
     if (strongCasual) {
         return (
-            `[INFO GAYA RESPONS: USER SEDANG DALAM MODE GAUL/EMOSIONAL. ` +
-            `Ikuti energi user. ` +
-            `Boleh menggunakan bahasa tongkrongan, slang, meme, candaan, dan emoji yang relevan. ` +
-            `Boleh menggunakan lowercase secara natural. ` +
-            `Jangan berubah menjadi bahasa baku atau customer service. ` +
-            `Jika user ngegas, tetap tenang tetapi boleh membalas dengan gaya tongkrongan. ` +
-            `Jangan menghakimi user.]`
+            `[INFO GAYA RESPONS: USER SEDANG DALAM OBROLAN SANTAI/GAUL. ` +
+            `WAJIB gunakan lowercase untuk seluruh isi respons. ` +
+            `Jangan membuat judul. ` +
+            `Jangan menggunakan numbering kecuali user memang meminta. ` +
+            `Jangan menjadi baku. ` +
+            `Jangan menjadi customer service. ` +
+            `Jangan menggunakan pembuka seperti "Halo! Ada yang bisa saya bantu?". ` +
+            `Ikuti gaya bahasa user secara natural. ` +
+            `Boleh menggunakan gw/lu/gua/lo. ` +
+            `Boleh menggunakan slang, meme, sarkas ringan, roasting ringan, dan emoji yang relevan. ` +
+            `Jangan sok alay. ` +
+            `Jangan spam emoji. ` +
+            `Jangan dry text. ` +
+            `Untuk chat pendek, tetap berikan respons yang hidup dan komunikatif. ` +
+            `Jika ada pergantian pikiran, gunakan ENTER dan satu baris kosong. ` +
+            `Panjang respons harus pas: tidak terlalu pendek dan tidak terlalu panjang.]`
         );
     }
 
     return (
         `[INFO GAYA RESPONS: USER SEDANG OBROLAN BIASA. ` +
-        `Gunakan bahasa natural, santai, dan mengikuti cara user berbicara. ` +
-        `Jangan otomatis menjadi formal. ` +
-        `Jangan menggunakan template customer service seperti "Halo! VGen AI siap membantu." ` +
-        `Jangan memaksakan slang jika user tidak menggunakannya. ` +
-        `Gunakan respons singkat dan natural untuk sapaan sederhana.]`
+        `Gunakan bahasa natural dan santai. ` +
+        `Gunakan lowercase untuk seluruh isi respons kecuali konteks memang teknis/formal. ` +
+        `Jangan menjadi customer service. ` +
+        `Jangan memaksakan judul atau numbering. ` +
+        `Gunakan ENTER jika ada pergantian pikiran. ` +
+        `Untuk chat pendek, jangan menjawab terlalu pendek jika konteks memungkinkan percakapan lebih hidup. ` +
+        `Jangan dry text. ` +
+        `Jangan yapping.]`
     );
 }
 
@@ -2023,7 +2036,7 @@ async function startWebSearchStatusBubble(
         statusMessage =
             await bot.sendMessage(
                 chatId,
-                '🔍Searching.',
+                '??Searching.',
                 {
                     reply_to_message_id:
                         replyToId ||
@@ -3511,13 +3524,16 @@ try {
         : 3;
 
 const buttonReminder =
-    `[INFO SISTEM: Tentukan sendiri apakah keyboard akan membantu user. ` +
-    `Untuk pertanyaan yang punya lanjutan jelas, BUAT tepat ${aiButtonCount} tombol. ` +
-    `Untuk obrolan yang kosong, gabut, bosen, random, atau user terlihat ingin ditemani ngobrol, ` +
-    `AI BOLEH dan dianjurkan membuat tepat 2 tombol yang terasa relate meskipun belum ada tugas spesifik. ` +
-    `AI sendiri yang menentukan teks tombol, emoji, callback_data, URL, dan topiknya berdasarkan konteks terbaru. ` +
-    `Jangan membuat tombol generik yang terasa dipaksakan. ` +
-    `Jika tombol benar-benar tidak membantu, jangan membuat tombol.]`;
+    `[INFO SISTEM: TOMBOL INTERAKTIF. ` +
+    `Untuk obrolan santai, random chat, meme, gabut, sapaan, candaan, roasting, atau percakapan pendek: JANGAN membuat tombol. ` +
+    `Jangan menulis [Keyboard]. ` +
+    `Jangan menulis Keyboard. ` +
+    `Jangan menulis object tombol mentah seperti {Teks: ..., Callback_data: ...}. ` +
+    `Jika tombol benar-benar diperlukan pada konteks yang jelas, WAJIB gunakan syntax backend persis seperti ` +
+    `<<<BUTTONS: [{"text":"label","callback_data":"ask|aksi"}]>>> ` +
+    `atau URL https yang valid. ` +
+    `Maksimal 3 tombol. ` +
+    `Jangan membuat tombol hanya agar respons terlihat ramai.]`;
 
 const styleInstruction =
     buildResponseStyleInstruction(
