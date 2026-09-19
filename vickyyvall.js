@@ -298,54 +298,78 @@ function isCommand(text) {
 }
 
 function normalizeTelegramStructure(text) {
-    const lines =
-        String(text || '')
-            .split('\n');
+    const lines = String(text || '')
+        .replace(/\r/g, '')
+        .split('\n');
 
     const output = [];
-
     const NBSP = '\u00A0';
 
     let inCodeBlock = false;
     let insideSubPoint = false;
+    let lastWasHeading = false;
+    let pendingBlank = false;
 
     const bulletRegex =
-        /^([•●➡️◦○▸])\s+(.+)$/;
+        /^([•●▪◦‣▸➡️])\s+(.+)$/;
 
     const numberedRegex =
         /^(\d+[.)])\s+(.+)$/;
 
-    const headingRegex =
-        /^(?:\*\*.+\*\*|<b>.+<\/b>)$/;
+    const boldOnlyHeadingRegex =
+        /^(?:\*\*[^*\n]+\*\*|<b>[^<\n]+<\/b>)$/;
 
-    for (const originalLine of lines) {
-        const line =
-            String(originalLine || '')
-                .replace(/\r/g, '');
+    const pushBlankOnce = () => {
+        if (
+            output.length &&
+            output[output.length - 1] !== ''
+        ) {
+            output.push('');
+        }
+    };
 
-        if (/^\s*```/.test(line)) {
+    for (
+        let i = 0;
+        i < lines.length;
+        i++
+    ) {
+        const raw =
+            String(lines[i] || '');
+
+        const trimmed =
+            raw.trim();
+
+        if (/^```/.test(trimmed)) {
+            if (pendingBlank) {
+                pushBlankOnce();
+                pendingBlank = false;
+            }
+
             inCodeBlock =
                 !inCodeBlock;
 
-            output.push(line);
-
+            output.push(raw);
             insideSubPoint = false;
+            lastWasHeading = false;
+
             continue;
         }
 
         if (inCodeBlock) {
-            output.push(line);
+            output.push(raw);
             continue;
         }
 
-        if (!line.trim()) {
-            output.push('');
-            insideSubPoint = false;
+        if (!trimmed) {
+            if (
+                output.length &&
+                output[output.length - 1] !== ''
+            ) {
+                pendingBlank = true;
+            }
+
             continue;
         }
-
-        const trimmed =
-            line.trim();
 
         const bullet =
             trimmed.match(bulletRegex);
@@ -353,28 +377,58 @@ function normalizeTelegramStructure(text) {
         const numbered =
             trimmed.match(numberedRegex);
 
+        const isHeading =
+            boldOnlyHeadingRegex.test(trimmed);
+
+        if (isHeading) {
+            if (output.length) {
+                pushBlankOnce();
+            }
+
+            output.push(trimmed);
+
+            insideSubPoint = false;
+            lastWasHeading = true;
+            pendingBlank = false;
+
+            continue;
+        }
+
         if (bullet) {
+            if (pendingBlank && !lastWasHeading) {
+                pushBlankOnce();
+            }
+
             output.push(
                 `${NBSP.repeat(4)}${bullet[1]} ${bullet[2].trim()}`
             );
 
             insideSubPoint = true;
+            lastWasHeading = false;
+            pendingBlank = false;
+
             continue;
         }
 
-        if (numbered) {
+        if (
+            numbered &&
+            (
+                lastWasHeading ||
+                insideSubPoint
+            )
+        ) {
+            if (pendingBlank && !lastWasHeading) {
+                pushBlankOnce();
+            }
+
             output.push(
                 `${NBSP.repeat(4)}${numbered[1]} ${numbered[2].trim()}`
             );
 
             insideSubPoint = true;
-            continue;
-        }
+            lastWasHeading = false;
+            pendingBlank = false;
 
-        if (headingRegex.test(trimmed)) {
-            output.push(trimmed);
-
-            insideSubPoint = false;
             continue;
         }
 
@@ -383,15 +437,25 @@ function normalizeTelegramStructure(text) {
                 `${NBSP.repeat(7)}${trimmed}`
             );
 
+            lastWasHeading = false;
+            pendingBlank = false;
+
             continue;
         }
 
+        if (pendingBlank) {
+            pushBlankOnce();
+            pendingBlank = false;
+        }
+
         output.push(trimmed);
+        lastWasHeading = false;
     }
 
     return output
         .join('\n')
-        .replace(/\n{3,}/g, '\n\n');
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
 }
 
 // ============================================================
@@ -2375,42 +2439,207 @@ text = text
     }
 
     // 3. EXTRACT BUTTONS (NEW SAFE SYNTAX <<<BUTTONS: [...]>>>)
-    let inline_keyboard = [];
-    const buttonRegex = /<<<BUTTONS:\s*(\[.*?\])\s*>>>/is;
-    const btnMatch = text.match(buttonRegex);
-    if (btnMatch) {
-        try {
-            const aiButtons = JSON.parse(btnMatch[1]);
-            const validButtons = [];
-            if (Array.isArray(aiButtons)) {
-                for (const original of aiButtons) {
-                    if (!original || typeof original !== 'object') continue;
-                    const btnText = String(original.text || '').trim();
-                    const url = String(original.url || '').trim();
-                    const callbackData = String(original.callback_data || '').trim();
 
-                    if (!btnText) continue;
-                    if (callbackData && callbackData.startsWith('ask|')) {
-                        let safeCallback = callbackData;
-                        if (Buffer.byteLength(safeCallback, 'utf8') > 64) {
-                            safeCallback = Buffer.from(safeCallback, 'utf8').subarray(0, 64).toString('utf8');
-                        }
-                        validButtons.push({ text: btnText, callback_data: safeCallback });
-                        continue;
+let inline_keyboard = [];
+
+const extractButtonJson = source => {
+    const marker =
+        '<<<BUTTONS:';
+
+    const markerStart =
+        source.indexOf(marker);
+
+    if (markerStart < 0) {
+        return null;
+    }
+
+    const arrayStart =
+        source.indexOf(
+            '[',
+            markerStart + marker.length
+        );
+
+    if (arrayStart < 0) {
+        return null;
+    }
+
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+
+    for (
+        let i = arrayStart;
+        i < source.length;
+        i++
+    ) {
+        const char = source[i];
+
+        if (inString) {
+            if (escaped) {
+                escaped = false;
+                continue;
+            }
+
+            if (char === '\\') {
+                escaped = true;
+                continue;
+            }
+
+            if (char === '"') {
+                inString = false;
+            }
+
+            continue;
+        }
+
+        if (char === '"') {
+            inString = true;
+            continue;
+        }
+
+        if (char === '[') {
+            depth++;
+        }
+
+        if (char === ']') {
+            depth--;
+        }
+
+        if (depth === 0) {
+            return {
+                json:
+                    source.slice(
+                        arrayStart,
+                        i + 1
+                    ),
+
+                start:
+                    markerStart,
+
+                end:
+                    i + 1
+            };
+        }
+    }
+
+    return null;
+};
+
+const buttonMatch =
+    extractButtonJson(text);
+
+if (buttonMatch) {
+    try {
+        const aiButtons =
+            JSON.parse(
+                buttonMatch.json
+            );
+
+        const validButtons = [];
+
+        if (Array.isArray(aiButtons)) {
+            for (
+                const original
+                of aiButtons
+            ) {
+                if (
+                    !original ||
+                    typeof original !== 'object'
+                ) {
+                    continue;
+                }
+
+                const btnText =
+                    String(
+                        original.text || ''
+                    ).trim();
+
+                const url =
+                    String(
+                        original.url || ''
+                    ).trim();
+
+                const callbackData =
+                    String(
+                        original.callback_data || ''
+                    ).trim();
+
+                if (!btnText) {
+                    continue;
+                }
+
+                if (
+                    callbackData &&
+                    callbackData.startsWith('ask|')
+                ) {
+                    let safeCallback =
+                        callbackData;
+
+                    if (
+                        Buffer.byteLength(
+                            safeCallback,
+                            'utf8'
+                        ) > 64
+                    ) {
+                        safeCallback =
+                            Buffer.from(
+                                safeCallback,
+                                'utf8'
+                            )
+                                .subarray(0, 64)
+                                .toString('utf8');
                     }
-                    if (url && /^https?:\/\/\S+$/i.test(url)) {
-                        validButtons.push({ text: btnText, url });
-                    }
-                    if (validButtons.length >= 3) break;
+
+                    validButtons.push({
+                        text: btnText,
+                        callback_data:
+                            safeCallback
+                    });
+
+                } else if (
+                    url &&
+                    /^https?:\/\/\S+$/i.test(url)
+                ) {
+                    validButtons.push({
+                        text: btnText,
+                        url
+                    });
+                }
+
+                if (
+                    validButtons.length >= 3
+                ) {
+                    break;
                 }
             }
-        if (validButtons.length > 0) {
-            inline_keyboard = [validButtons.slice(0, 3)];
         }
+
+        if (
+            validButtons.length > 0
+        ) {
+            inline_keyboard = [
+                validButtons.slice(0, 3)
+            ];
+        }
+
     } catch (error) {
-        console.error('[BUTTON PARSER ERROR]', error.message);
+        console.error(
+            '[BUTTON PARSER ERROR]',
+            error.message
+        );
     }
-    text = text.replace(buttonRegex, '').trim();
+
+    text =
+        text.slice(
+            0,
+            buttonMatch.start
+        ) +
+        text.slice(
+            buttonMatch.end
+        );
+
+    text =
+        text.trim();
 }
 
 // ============================================================
@@ -2919,7 +3148,15 @@ try {
     `Limit hanya berlaku untuk chat AI dan reset otomatis setiap 00.00 WIB Asia/Jakarta. ` +
     `Notifikasi limit ditangani backend; jangan membuat notifikasi limit sendiri.]`;
             // INJEKSI RAHASIA BIAR FORMAT LIST RAPI & BUTTON MUNCUL
-            const formatReminder = `[INFO SISTEM: JANGAN PERNAH membuat list menggunakan tanda bintang (*). WAJIB gunakan angka (1, 2, 3) atau tanda minus (-). Gunakan **teks** untuk bold.]`;
+            const formatReminder =
+    `[INFO SISTEM: Format Telegram harus rapi. ` +
+    `Gunakan bullet "•" atau numbering jika memang sesuai struktur. ` +
+    `Sub-point WAJIB memakai indentasi/spasi konsisten. ` +
+    `Baris lanjutan sub-point tidak boleh kembali ke margin kiri. ` +
+    `Gunakan **bold** hanya pada kata/frasa penting yang relevan. ` +
+    `Judul boleh BOLD, bernomor, kapital, dan memakai emoji relevan. ` +
+    `Gunakan ENTER 2x antar bagian utama agar tidak dempet. ` +
+    `Jangan membuat list dengan tanda bintang sebagai bullet.]`;
             const aiButtonCount =
     Math.random() < 0.5
         ? 2
