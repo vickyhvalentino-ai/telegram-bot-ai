@@ -3096,11 +3096,18 @@ inline_keyboard =
         : [];
 }
 
+const finalReplyOptions = {
+    reply_to_message_id: replyToId,
+    ...(replyOptions && typeof replyOptions === 'object'
+        ? replyOptions
+        : {})
+};
+
 await sendReply(
     bot,
     chatId,
     text,
-    extraOptions
+    finalReplyOptions
 );
 
 latestWebSearchByChat.delete(String(chatId));
