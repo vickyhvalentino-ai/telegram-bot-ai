@@ -297,6 +297,103 @@ function isCommand(text) {
     );
 }
 
+function normalizeTelegramStructure(text) {
+    const lines =
+        String(text || '')
+            .split('\n');
+
+    const output = [];
+
+    const NBSP = '\u00A0';
+
+    let inCodeBlock = false;
+    let insideSubPoint = false;
+
+    const bulletRegex =
+        /^([•●➡️◦○▸])\s+(.+)$/;
+
+    const numberedRegex =
+        /^(\d+[.)])\s+(.+)$/;
+
+    const headingRegex =
+        /^(?:\*\*.+\*\*|<b>.+<\/b>)$/;
+
+    for (const originalLine of lines) {
+        const line =
+            String(originalLine || '')
+                .replace(/\r/g, '');
+
+        if (/^\s*```/.test(line)) {
+            inCodeBlock =
+                !inCodeBlock;
+
+            output.push(line);
+
+            insideSubPoint = false;
+            continue;
+        }
+
+        if (inCodeBlock) {
+            output.push(line);
+            continue;
+        }
+
+        if (!line.trim()) {
+            output.push('');
+            insideSubPoint = false;
+            continue;
+        }
+
+        const trimmed =
+            line.trim();
+
+        const bullet =
+            trimmed.match(bulletRegex);
+
+        const numbered =
+            trimmed.match(numberedRegex);
+
+        if (bullet) {
+            output.push(
+                `${NBSP.repeat(4)}${bullet[1]} ${bullet[2].trim()}`
+            );
+
+            insideSubPoint = true;
+            continue;
+        }
+
+        if (numbered) {
+            output.push(
+                `${NBSP.repeat(4)}${numbered[1]} ${numbered[2].trim()}`
+            );
+
+            insideSubPoint = true;
+            continue;
+        }
+
+        if (headingRegex.test(trimmed)) {
+            output.push(trimmed);
+
+            insideSubPoint = false;
+            continue;
+        }
+
+        if (insideSubPoint) {
+            output.push(
+                `${NBSP.repeat(7)}${trimmed}`
+            );
+
+            continue;
+        }
+
+        output.push(trimmed);
+    }
+
+    return output
+        .join('\n')
+        .replace(/\n{3,}/g, '\n\n');
+}
+
 // ============================================================
 // AUTO CONVERT MARKDOWN TO TELEGRAM HTML & SANITIZER
 // ============================================================
@@ -389,7 +486,10 @@ async function sendReply(bot, chatId, text, extra = {}) {
         safeText += '\n\n…';
     }
 
-    const htmlText = convertMarkdownToHTML(safeText);
+const structuredText =
+    normalizeTelegramStructure(safeText);
+const htmlText =
+    convertMarkdownToHTML(structuredText);
 
     try {
         await bot.sendMessage(
@@ -1708,7 +1808,7 @@ async function startWebSearchStatusBubble(
             const currentText =
                 mode === 'searching'
                     ? '🔍Searching'
-                    : `⏳Processing: ${currentTopic}`;
+                    : `⏳${currentTopic}`;
 
             const text =
                 `${currentText}${dots[dotIndex]}`;
@@ -1836,10 +1936,18 @@ const searchHistoryContext =
         )
         .join('\n');
 
+const cleanSearchIntent = String(finalPrompt)
+    .replace(/\[INFO SISTEM:[\s\S]*?\]/gi, ' ')
+    .replace(/Permintaan pengguna dari tombol\s*:/gi, ' ')
+    .replace(/WEB SEARCH AKTIF[\s\S]*/gi, ' ')
+    .replace(/<<<BUTTONS:[\s\S]*?>>>/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
 if (
     !base64Media &&
     shouldSearchWeb(
-        finalPrompt,
+        cleanSearchIntent,
         searchHistoryContext
     )
 ) {
@@ -1847,7 +1955,7 @@ if (
 
     try {
         console.log(
-            `[WEB SEARCH] Query user: ${String(finalPrompt).slice(0, 200)}`
+            `[WEB SEARCH] Query user: ${cleanSearchIntent.slice(0, 200)}`
         );
 
         console.log(
@@ -1855,63 +1963,56 @@ if (
         );
 
         if (
-    !isSearchCached(
-        finalPrompt,
-        searchHistoryContext
-    )
-) {
-    const cleanWebQuery = String(finalPrompt)
-    .replace(/\[INFO SISTEM:[\s\S]*?\]/gi, ' ')
-    .replace(/Permintaan pengguna dari tombol\s*:/gi, ' ')
-    .replace(/<<<BUTTONS:[\s\S]*?>>>/gi, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+            !isSearchCached(
+                cleanSearchIntent,
+                searchHistoryContext
+            )
+        ) {
+            stopSearchStatus =
+                await startWebSearchStatusBubble(
+                    chatId,
+                    replyToId,
+                    cleanSearchIntent
+                );
 
-stopSearchStatus =
-    await startWebSearchStatusBubble(
-        chatId,
-        replyToId,
-        cleanWebQuery
-    );
+            const webData =
+                await searchWeb(
+                    cleanSearchIntent,
+                    searchHistoryContext
+                );
 
-const webData =
-    await searchWeb(
-        cleanWebQuery,
-        searchHistoryContext
-    );
+            latestWebSearchByChat.set(
+                String(chatId),
+                Array.isArray(webData.results)
+                    ? webData.results.slice(0, 10)
+                    : []
+            );
 
-latestWebSearchByChat.set(
-    String(chatId),
-    Array.isArray(webData.results)
-        ? webData.results.slice(0, 10)
-        : []
-);
+            webContext =
+                formatWebResultsForAI(
+                    webData
+                );
 
-webContext =
-    formatWebResultsForAI(
-        webData
-    );
+            console.log(
+                `[WEB SEARCH] Provider: ${webData.provider} | Hasil: ${webData.results.length}`
+            );
 
-console.log(
-    `[WEB SEARCH] Provider: ${webData.provider} | Hasil: ${webData.results.length}`
-);
+            console.log(
+                `[WEB SEARCH] Query aktual: ${webData.searchQuery}`
+            );
+        }
 
-console.log(
-    `[WEB SEARCH] Query aktual: ${webData.searchQuery}`
-);
+    } catch (webError) {
+        console.error(
+            '[WEB SEARCH FAILED]',
+            webError.message
+        );
 
-}
-
-} catch (webError) {
-    console.error(
-        '[WEB SEARCH FAILED]',
-        webError.message
-    );
-} finally {
-    if (stopSearchStatus) {
-        stopSearchStatus();
+    } finally {
+        if (stopSearchStatus) {
+            stopSearchStatus();
+        }
     }
-}
 }
 
 const history = historyFor(chatId);

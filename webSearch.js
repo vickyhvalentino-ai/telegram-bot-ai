@@ -595,11 +595,80 @@ async function searchWeb(
     }
 
     const resultLimit =
-        randomSearchResultLimit();
+    randomSearchResultLimit();
 
-    const errors = [];
-    let tavilyResults = [];
-    let serperResults = [];
+const errors = [];
+let tavilyResults = [];
+let serperResults = [];
+
+const lowerSearchQuery =
+    searchQuery.toLowerCase();
+
+const sports =
+    isSportsQuery(
+        lowerSearchQuery
+    );
+
+const schedule =
+    isScheduleQuery(
+        lowerSearchQuery
+    );
+
+const ranking =
+    isRankingQuery(
+        lowerSearchQuery
+    );
+
+const news =
+    isNewsQuery(
+        lowerSearchQuery
+    );
+
+const validation =
+    isValidationQuery(
+        lowerSearchQuery
+    );
+
+const highConfidenceSearch =
+    sports ||
+    schedule ||
+    ranking ||
+    news ||
+    validation;
+
+if (highConfidenceSearch) {
+
+    const [tavily, serper] =
+        await Promise.allSettled([
+            searchTavily(
+                searchQuery,
+                resultLimit
+            ),
+            searchSerper(
+                searchQuery,
+                resultLimit
+            )
+        ]);
+
+    if (tavily.status === 'fulfilled') {
+        tavilyResults =
+            tavily.value;
+    } else {
+        errors.push(
+            `Tavily: ${tavily.reason?.message || 'Request gagal'}`
+        );
+    }
+
+    if (serper.status === 'fulfilled') {
+        serperResults =
+            serper.value;
+    } else {
+        errors.push(
+            `Serper: ${serper.reason?.message || 'Request gagal'}`
+        );
+    }
+
+} else {
 
     try {
         tavilyResults =
@@ -613,31 +682,11 @@ async function searchWeb(
         );
     }
 
-    const sports =
-        isSportsQuery(
-            searchQuery.toLowerCase()
-        );
-
-    const schedule =
-        isScheduleQuery(
-            searchQuery.toLowerCase()
-        );
-
     const tavilyNeedsBackup =
         tavilyResults.length < 3;
 
-    const sportsNeedsBackup =
-        sports &&
-        schedule &&
-        !tavilyResults.some(item =>
-            isOfficialSportsDomain(
-                getDomain(item.url)
-            )
-        );
-
     if (
         tavilyNeedsBackup ||
-        sportsNeedsBackup ||
         tavilyResults.length === 0
     ) {
         try {
@@ -652,6 +701,7 @@ async function searchWeb(
             );
         }
     }
+}
 
     let combined =
         dedupeResults([
@@ -742,12 +792,52 @@ function formatWebResultsForAI(searchData) {
         .slice(0, MAX_CONTEXT_CHARS);
 }
 
+function isValidationQuery(value) {
+    const q = String(value || '')
+        .toLowerCase()
+        .trim();
+
+    if (
+        /\b(apakah|benarkah)\b[\s\S]{0,100}\b(benar|bener|valid)\b/i.test(q)
+    ) {
+        return true;
+    }
+
+    return containsAny(
+        q,
+        [
+            'cek fakta',
+            'cek kebenaran',
+            'cek apakah benar',
+            'cek apakah bener',
+            'verifikasi',
+            'fact check',
+            'bener ga',
+            'bener gak',
+            'bener nggak',
+            'benar ga',
+            'benar gak',
+            'benar nggak',
+            'valid ga',
+            'valid gak',
+            'valid nggak',
+            'hoaks',
+            'hoax'
+        ]
+    );
+}
+
 function shouldSearchWeb(
     text,
     historyContext = ''
 ) {
     const current =
         String(text || '')
+            .replace(/\[INFO SISTEM:[\s\S]*?\]/gi, ' ')
+            .replace(/Permintaan pengguna dari tombol\s*:/gi, ' ')
+            .replace(/WEB SEARCH AKTIF[\s\S]*/gi, ' ')
+            .replace(/<<<BUTTONS:[\s\S]*?>>>/gi, ' ')
+            .replace(/\s+/g, ' ')
             .toLowerCase()
             .trim();
 
@@ -779,12 +869,12 @@ function shouldSearchWeb(
             'browsing',
             'look up',
             'lookup',
-            'google it',
-            'verifikasi',
-            'cek fakta',
-            'fact check'
+            'google it'
         ]
     );
+
+    const validation =
+        isValidationQuery(current);
 
     const currentIntent = containsAny(
         current,
@@ -796,7 +886,6 @@ function shouldSearchWeb(
             'hari ini',
             'besok',
             'kemarin',
-            'tadi',
             'latest',
             'recent',
             'currently',
@@ -809,26 +898,11 @@ function shouldSearchWeb(
         ]
     );
 
-    const questionIntent = containsAny(
-        current,
-        [
-            'apa',
-            'siapa',
-            'kapan',
-            'dimana',
-            'di mana',
-            'berapa',
-            'tau ga',
-            'tahu ga',
-            'lu tau',
-            'lo tau',
-            'who',
-            'what',
-            'when',
-            'where',
-            'how many'
-        ]
-    );
+    const questionIntent =
+        /\b(?:siapa|kapan|dimana|di mana|berapa|who|when|where|how many)\b/i.test(current) ||
+        /\bapa\s+(?:itu|arti|maksud|yang|saja|sih)\b/i.test(current) ||
+        /\b(?:lu|lo)\s+tau(?:\s+ga)?\b/i.test(current) ||
+        /\b(?:lu|lo)\s+tahu(?:\s+ga)?\b/i.test(current);
 
     const sports =
         isSportsQuery(combined);
@@ -845,12 +919,35 @@ function shouldSearchWeb(
     const followUp =
         isFollowUpQuery(current);
 
+    const historyFresh =
+        isSportsQuery(history) ||
+        isScheduleQuery(history) ||
+        isRankingQuery(history) ||
+        isNewsQuery(history) ||
+        containsAny(
+            history,
+            [
+                'terbaru',
+                'terkini',
+                'hari ini',
+                'sekarang',
+                'besok',
+                'kemarin',
+                'latest',
+                'recent'
+            ]
+        );
+
     const datePattern =
         /\b(?:tanggal|tgl)?\s*\d{1,2}\b/i.test(current) ||
         /\b\d{1,2}\s+(?:januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember)\b/i.test(current) ||
         /\b(?:19|20)\d{2}\b/.test(current);
 
     if (explicitSearch) {
+        return true;
+    }
+
+    if (validation) {
         return true;
     }
 
@@ -874,7 +971,7 @@ function shouldSearchWeb(
 
     if (
         followUp &&
-        history
+        historyFresh
     ) {
         return true;
     }
