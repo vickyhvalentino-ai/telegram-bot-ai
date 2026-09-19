@@ -844,6 +844,206 @@ function isValidationQuery(value) {
     );
 }
 
+function shouldSearchWeb(
+    text,
+    historyContext = ''
+) {
+    const current =
+        String(text || '')
+            .replace(/\[INFO SISTEM:[\s\S]*?\]/gi, ' ')
+            .replace(/Permintaan pengguna dari tombol\s*:/gi, ' ')
+            .replace(/WEB SEARCH AKTIF[\s\S]*/gi, ' ')
+            .replace(/<<<BUTTONS:[\s\S]*?>>>/gi, ' ')
+            .replace(/\s+/g, ' ')
+            .toLowerCase()
+            .trim();
+
+    const history =
+        extractUserHistory(
+            historyContext
+        ).toLowerCase();
+
+    if (!current) {
+        return false;
+    }
+
+    const combined =
+        `${history} ${current}`;
+
+    const explicitSearch =
+        containsAny(
+            current,
+            [
+                'cari',
+                'carikan',
+                'cariin',
+                'cek online',
+                'cek internet',
+                'cek web',
+                'cari di internet',
+                'cari online',
+                'search',
+                'browse',
+                'browsing',
+                'look up',
+                'lookup',
+                'google it',
+                'kasih link',
+                'mana link'
+            ]
+        );
+
+    const validation =
+        isValidationQuery(
+            current
+        );
+
+    const fresh =
+        containsAny(
+            current,
+            [
+                'terbaru',
+                'terkini',
+                'sekarang',
+                'saat ini',
+                'hari ini',
+                'besok',
+                'kemarin',
+                'latest',
+                'recent',
+                'currently',
+                'today',
+                'tomorrow',
+                'yesterday',
+                'right now',
+                'real time',
+                'realtime'
+            ]
+        );
+
+    const question =
+        containsAny(
+            current,
+            [
+                'siapa',
+                'kapan',
+                'dimana',
+                'di mana',
+                'berapa',
+                'who',
+                'when',
+                'where',
+                'how many'
+            ]
+        ) ||
+        /\bapa\s+(?:itu|arti|maksud|yang|saja|sih)\b/i.test(current) ||
+        /\b(?:lu|lo)\s+tau(?:\s+ga)?\b/i.test(current) ||
+        /\b(?:lu|lo)\s+tahu(?:\s+ga)?\b/i.test(current);
+
+    const sports =
+        isSportsQuery(
+            combined
+        );
+
+    const schedule =
+        isScheduleQuery(
+            combined
+        );
+
+    const ranking =
+        isRankingQuery(
+            combined
+        );
+
+    const news =
+        isNewsQuery(
+            current
+        );
+
+    const followUp =
+        isFollowUpQuery(
+            current
+        );
+
+    const historyFresh =
+        isSportsQuery(history) ||
+        isScheduleQuery(history) ||
+        isRankingQuery(history) ||
+        isNewsQuery(history) ||
+        containsAny(
+            history,
+            [
+                'terbaru',
+                'terkini',
+                'hari ini',
+                'sekarang',
+                'besok',
+                'kemarin',
+                'latest',
+                'recent'
+            ]
+        );
+
+    const datePattern =
+        /\b(?:tanggal|tgl)?\s*\d{1,2}\b/i.test(current) ||
+        /\b\d{1,2}\s+(?:januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember)\b/i.test(current) ||
+        /\b(?:19|20)\d{2}\b/.test(current);
+
+    if (
+        explicitSearch ||
+        validation ||
+        news ||
+        fresh
+    ) {
+        return true;
+    }
+
+    if (
+        sports &&
+        (
+            schedule ||
+            ranking ||
+            question ||
+            datePattern ||
+            followUp ||
+            fresh
+        )
+    ) {
+        return true;
+    }
+
+    if (
+        followUp &&
+        historyFresh
+    ) {
+        return true;
+    }
+
+    if (
+        question &&
+        (
+            sports ||
+            fresh ||
+            datePattern ||
+            historyFresh
+        )
+    ) {
+        return true;
+    }
+
+    if (
+        datePattern &&
+        (
+            question ||
+            schedule
+        )
+    ) {
+        return true;
+    }
+
+    return false;
+}
+
 function shouldShowWebSearchStatus(
     text,
     historyContext = ''
