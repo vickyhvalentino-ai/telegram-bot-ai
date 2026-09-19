@@ -318,7 +318,8 @@ function buildResponseStyleInstruction(userText) {
     if (strongCasual) {
         return (
             `[INFO GAYA RESPONS: USER SEDANG DALAM OBROLAN SANTAI/GAUL. ` +
-            `WAJIB gunakan lowercase untuk seluruh isi respons. ` +
+            `WAJIB gunakan pola kapitalisasi chat: huruf pertama setiap bait/paragraf kapital, ` +
+            `setelah itu lowercase sampai ENTER berikutnya. Nama khusus tetap mengikuti kapitalisasi yang benar. ` +
             `Jangan membuat judul. ` +
             `Jangan menggunakan numbering kecuali user memang meminta. ` +
             `Jangan menjadi baku. ` +
@@ -339,7 +340,8 @@ function buildResponseStyleInstruction(userText) {
     return (
         `[INFO GAYA RESPONS: USER SEDANG OBROLAN BIASA. ` +
         `Gunakan bahasa natural dan santai. ` +
-        `Gunakan lowercase untuk seluruh isi respons kecuali konteks memang teknis/formal. ` +
+        `Gunakan pola kapitalisasi chat: huruf pertama setiap bait/paragraf kapital, setelah itu lowercase. ` +
+        `Nama khusus tetap mengikuti kapitalisasi yang benar. ` +
         `Jangan menjadi customer service. ` +
         `Jangan memaksakan judul atau numbering. ` +
         `Gunakan ENTER jika ada pergantian pikiran. ` +
@@ -2904,6 +2906,86 @@ const buttonMatch =
     extractButtonJson(text) ||
     extractLooseButtonJson(text);
 
+// ============================================================
+// LEGACY KEYBOARD FORMAT RECOVERY
+// Model lama kadang masih menghasilkan:
+// [Keyboard]
+// [{Teks: ..., Callback_data: ...}]
+// Format mentah ini tidak boleh sampai tampil ke user.
+// ============================================================
+if (!buttonMatch) {
+    const legacyKeyboardRegex =
+        /(?:^|\n)\s*\[Keyboard\]\s*\n?\s*(\[[\s\S]*\])\s*$/i;
+
+    const legacyMatch =
+        text.match(legacyKeyboardRegex);
+
+    if (legacyMatch) {
+        const legacyBody =
+            String(legacyMatch[1] || '');
+
+        const legacyButtons = [];
+        const legacyButtonRegex =
+            /\{\s*(?:Teks|text)\s*:\s*(.*?)\s*,\s*(?:Callback_data|callback_data)\s*:\s*([^}\]]+?)\s*\}/gi;
+
+        let legacyPart;
+
+        while (
+            (legacyPart =
+                legacyButtonRegex.exec(legacyBody))
+            && legacyButtons.length < 3
+        ) {
+            const legacyText =
+                String(legacyPart[1] || '')
+                    .trim()
+                    .replace(/^['"]|['"]$/g, '');
+
+            const rawCallback =
+                String(legacyPart[2] || '')
+                    .trim()
+                    .replace(/^['"]|['"]$/g, '');
+
+            if (!legacyText || !rawCallback) {
+                continue;
+            }
+
+            let safeCallback =
+                rawCallback.startsWith('ask|')
+                    ? rawCallback
+                    : `ask|${rawCallback}`;
+
+            if (
+                Buffer.byteLength(
+                    safeCallback,
+                    'utf8'
+                ) > 64
+            ) {
+                safeCallback =
+                    Buffer.from(
+                        safeCallback,
+                        'utf8'
+                    )
+                        .subarray(0, 64)
+                        .toString('utf8');
+            }
+
+            legacyButtons.push({
+                text: legacyText,
+                callback_data: safeCallback
+            });
+        }
+
+        if (legacyButtons.length > 0) {
+            inline_keyboard = [legacyButtons];
+        }
+
+        text =
+            text
+                .replace(legacyKeyboardRegex, '')
+                .trim();
+    }
+}
+
 if (buttonMatch) {
     try {
         const aiButtons =
@@ -2944,12 +3026,11 @@ if (buttonMatch) {
                     continue;
                 }
 
-                if (
-                    callbackData &&
-                    callbackData.startsWith('ask|')
-                ) {
+                if (callbackData) {
                     let safeCallback =
-                        callbackData;
+                        callbackData.startsWith('ask|')
+                            ? callbackData
+                            : `ask|${callbackData}`;
 
                     if (
                         Buffer.byteLength(
@@ -3044,10 +3125,17 @@ const isSimpleChat =
             String(sourcePrompt || '').trim()
         );
 
+const isCasualChat =
+    /(?:wkwk|wkwkwk|awokawok|awikwok|anjir|anjg|ajg|njir|jir|cok|bangsat|bangke|cuy|bray|ngab|gas|bro|gabut|tolol|caper|haha|hehe|🤣|😂|😭|😹|💀|🗿)/i
+        .test(
+            String(sourcePrompt || '').trim()
+        );
+
 if (
     inline_keyboard.length < 2 &&
     hasSubstantialAnswer &&
     !isSimpleChat &&
+    !isCasualChat &&
     !isAlightMotionTopic(sourcePrompt)
 ) {
     const cleanTopic =
@@ -3111,6 +3199,14 @@ inline_keyboard =
 
 const finalReplyOptions = {
     reply_to_message_id: replyToId,
+    ...(inline_keyboard.length > 0
+        ? {
+            reply_markup: {
+                inline_keyboard:
+                    inline_keyboard.slice(0, 3)
+            }
+        }
+        : {}),
     ...(replyOptions && typeof replyOptions === 'object'
         ? replyOptions
         : {})
@@ -3524,16 +3620,13 @@ try {
         : 3;
 
 const buttonReminder =
-    `[INFO SISTEM: TOMBOL INTERAKTIF. ` +
-    `Untuk obrolan santai, random chat, meme, gabut, sapaan, candaan, roasting, atau percakapan pendek: JANGAN membuat tombol. ` +
-    `Jangan menulis [Keyboard]. ` +
-    `Jangan menulis Keyboard. ` +
-    `Jangan menulis object tombol mentah seperti {Teks: ..., Callback_data: ...}. ` +
-    `Jika tombol benar-benar diperlukan pada konteks yang jelas, WAJIB gunakan syntax backend persis seperti ` +
-    `<<<BUTTONS: [{"text":"label","callback_data":"ask|aksi"}]>>> ` +
-    `atau URL https yang valid. ` +
-    `Maksimal 3 tombol. ` +
-    `Jangan membuat tombol hanya agar respons terlihat ramai.]`;
+    `[INFO SISTEM: TOMBOL INTERAKTIF MUTLAK. ` +
+    `Jika keyboard diperlukan, JANGAN pernah menulis [Keyboard], Keyboard, atau object tombol mentah. ` +
+    `WAJIB gunakan syntax persis: <<<BUTTONS: [{\"text\":\"label\",\"callback_data\":\"ask|aksi\"}]>>> ` +
+    `callback_data boleh berupa aksi singkat dan backend akan memprosesnya. ` +
+    `Untuk obrolan santai murni, random chat, sapaan, candaan, gabut, atau roasting tanpa topik jelas: jangan membuat tombol. ` +
+    `Untuk pertanyaan/topik jelas dengan lanjutan yang berguna: boleh membuat 1 sampai 3 tombol yang benar-benar relevan. ` +
+    `Jangan membuat tombol hanya agar pesan terlihat ramai.]`;
 
 const styleInstruction =
     buildResponseStyleInstruction(
