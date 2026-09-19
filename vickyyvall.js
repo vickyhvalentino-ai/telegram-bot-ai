@@ -2152,32 +2152,70 @@ async function askAI(chatId, finalPrompt, base64Media, mimeTypeMedia, replyToId 
                         const loadingDelay = Math.floor(Math.random() * 1000) + 2000; // 2000ms - 3000ms
                         await delay(loadingDelay);
 
-                        // 2. BUBBLE KEDUA (Server Penuh + Animasi Titik)
-                        const animMsg = await bot.sendMessage(chatId, "Server penuh, Tunggu sebentar.");
-                        
-                        let baseText = "Server penuh, Tunggu sebentar";
-                        const frames = [".", "..", "..."];
-                        const totalAnimationTime = Math.floor(Math.random() * 4000) + 5000; // 5-9 detik random
-                        const interval = 400; // Animasi titik lebih cepat dan smooth!
-                        const steps = Math.floor(totalAnimationTime / interval);
+// 2. BUBBLE KEDUA (Server Penuh + Reconnect + Final)
+const animMsg = await bot.sendMessage(
+    chatId,
+    "Server penuh, Tunggu sebentar."
+);
 
-                        for (let i = 0; i < steps; i++) {
-                            const frame = frames[i % frames.length];
-                            await bot.editMessageText(baseText + frame, { 
-                                chat_id: chatId, 
-                                message_id: animMsg.message_id 
-                            }).catch(() => {});
-                            await delay(interval);
-                        }
+const frames = [".", "..", "..."];
+const totalAnimationTime =
+    Math.floor(Math.random() * 4000) + 5000; // 5-9 detik
+const interval = 400;
 
-                        // 3. Pesan final berevolusi (di bubble kedua)
-                        await bot.editMessageText("AI Berevolusi kembali ✅", { 
-                            chat_id: chatId, 
-                            message_id: animMsg.message_id 
-                        }).catch(() => {});
-                        await delay(1000);
-                    } catch (e) {}
-                }
+// Server penuh dulu, baru reconnect.
+// Semuanya tetap dalam SATU bubble yang sama.
+const serverDuration =
+    Math.floor((totalAnimationTime * 0.55) / interval) * interval;
+
+const reconnectDuration =
+    totalAnimationTime - serverDuration;
+
+// SERVER PENUH
+let elapsed = 0;
+
+while (elapsed < serverDuration) {
+    const frame =
+        frames[Math.floor(elapsed / interval) % frames.length];
+
+    await bot.editMessageText(
+        `Server penuh, Tunggu sebentar${frame}`,
+        {
+            chat_id: chatId,
+            message_id: animMsg.message_id
+        }
+    ).catch(() => {});
+
+    await delay(interval);
+    elapsed += interval;
+}
+
+// MENGHUBUNGKAN ULANG
+let reconnectElapsed = 0;
+
+while (reconnectElapsed < reconnectDuration) {
+    const frame =
+        frames[Math.floor(reconnectElapsed / interval) % frames.length];
+
+    await bot.editMessageText(
+        `Menghubungkan Ulang${frame}`,
+        {
+            chat_id: chatId,
+            message_id: animMsg.message_id
+        }
+    ).catch(() => {});
+
+    await delay(interval);
+}
+
+// FINAL — MASIH BUBBLE YANG SAMA
+await bot.editMessageText(
+    "AI Berevolusi kembali ✅",
+    {
+        chat_id: chatId,
+        message_id: animMsg.message_id
+    }
+).catch(() => {});
 
                 // ROTASI SIKLUS BERULANG!
                 console.log(`[LIMIT] ${currentModel} di email ${activeKeys[currentKeyIndex].email} HABIS. Berevolusi!`);
@@ -2472,36 +2510,59 @@ function toUnicodeBold(value) {
 
 function extractTopicWords(source) {
     const stopWords = new Set([
-        'apa', 'siapa', 'kapan', 'dimana', 'di',
-        'mana', 'kenapa', 'mengapa', 'gimana',
-        'bagaimana', 'berapa', 'yang', 'dan',
-        'atau', 'ini', 'itu', 'tadi', 'nih',
-        'sih', 'dong', 'deh', 'ga', 'gak',
-        'nggak', 'enggak', 'tau', 'tahu',
+        'apa', 'siapa', 'kapan', 'dimana',
+        'di', 'mana', 'kenapa', 'mengapa',
+        'gimana', 'bagaimana', 'berapa',
+        'yang', 'dan', 'atau', 'ini', 'itu',
+        'tadi', 'nih', 'sih', 'dong', 'deh',
+        'ga', 'gak', 'nggak', 'enggak',
+        'tau', 'tahu',
         'gw', 'gua', 'gue', 'lu', 'lo',
         'aku', 'kamu', 'saya', 'tolong',
         'coba', 'bisa', 'boleh', 'kasih',
         'buat', 'bikin', 'mau', 'ada',
         'lagi', 'tentang', 'soal',
-        'dong', 'woy', 'bang', 'cok'
+        'woy', 'bang', 'cok', 'cuy', 'bray',
+        'ngab', 'jir', 'njir', 'anjir', 'anj',
+        'anjg', 'ajg', 'bangsat', 'bangke',
+        'wkwk', 'wkwkwk', 'haha', 'hahaha',
+        'hehe', 'hehehe', 'kocag', 'kocak',
+        'lol', 'lmao',
+        'yok', 'yuk', 'lah', 'yah',
+        'sih', 'kan'
+    ]);
+
+    const genericTopicWords = new Set([
+        'hal', 'bagian', 'detail', 'info',
+        'cerita', 'topik', 'masalah',
+        'sesuatu', 'lain', 'lainnya',
+        'orang', 'benda', 'barang',
+        'fakta'
     ]);
 
     return [
         ...new Set(
             String(source || '')
-                .toLowerCase()
                 .replace(
                     /https?:\/\/\S+/gi,
                     ''
                 )
                 .replace(
-                    /[^\p{L}\p{N}\s@.-]/gu,
+                    /[^\p{L}\p{N}\s@._-]/gu,
                     ' '
                 )
                 .split(/\s+/)
+                .map(word =>
+                    word
+                        .trim()
+                        .toLowerCase()
+                )
                 .filter(Boolean)
                 .filter(word =>
                     !stopWords.has(word)
+                )
+                .filter(word =>
+                    !genericTopicWords.has(word)
                 )
                 .filter(word =>
                     word.length >= 3 ||
@@ -2527,22 +2588,23 @@ function buttonIsStrictlyRelated(
     const combinedButton =
         `${buttonText} ${callbackData}`;
 
-    const bannedGeneric =
-        [
-            'bahas ini',
-            'bahas itu',
-            'bahas lebih lanjut',
-            'bahas ini lagi',
-            'jelasin lebih detail',
-            'jelaskan lebih detail',
-            'kasih contoh',
-            'tanya sesuatu',
-            'lanjut',
-            'detailnya',
-            'lebih detail',
-            'info lainnya',
-            'lihat lainnya'
-        ];
+    const bannedGeneric = [
+        'bahas ini',
+        'bahas itu',
+        'bahas lebih lanjut',
+        'bahas ini lagi',
+        'jelasin lebih detail',
+        'jelaskan lebih detail',
+        'kasih contoh',
+        'tanya sesuatu',
+        'lanjut',
+        'detailnya',
+        'lebih detail',
+        'info lainnya',
+        'lihat lainnya',
+        'fakta ini',
+        'info ini'
+    ];
 
     if (
         bannedGeneric.some(
@@ -2553,10 +2615,152 @@ function buttonIsStrictlyRelated(
         return false;
     }
 
-    const topicWords =
+    const sourceWords =
         extractTopicWords(
-            `${sourcePrompt} ${String(answerText || '').slice(0, 1200)}`
+            sourcePrompt
         );
+
+    /*
+     * JANGAN gunakan jawaban AI sebagai
+     * satu-satunya sumber topic anchor.
+     *
+     * Jawaban AI hanya membantu validasi.
+     * TOPIK UTAMA harus berasal dari pesan user.
+     */
+
+    if (!sourceWords.length) {
+        return false;
+    }
+
+    const buttonWords =
+        extractTopicWords(
+            combinedButton
+        );
+
+    if (!buttonWords.length) {
+        return false;
+    }
+
+    const overlap =
+        sourceWords.filter(word =>
+            buttonWords.includes(word)
+        );
+
+    /*
+     * TOPIK KUAT:
+     * minimal 2 anchor user harus nyambung.
+     *
+     * Contoh:
+     * yuki + kato
+     * smp + 40
+     * callback + button
+     */
+
+    if (sourceWords.length >= 2) {
+        if (overlap.length < 2) {
+            return false;
+        }
+    }
+
+    /*
+     * Kalau cuma satu topic word:
+     * kata tersebut harus benar-benar spesifik.
+     */
+
+    if (sourceWords.length === 1) {
+        const strongSingleTopic =
+            new Set([
+                'persija',
+                'tiktok',
+                'telegram',
+                'instagram',
+                'javascript',
+                'typescript',
+                'nodejs',
+                'node',
+                'html',
+                'css',
+                'json',
+                'python',
+                'railway',
+                'gemini',
+                'coding',
+                'callback',
+                'smp',
+                'sma',
+                'universitas',
+                'game',
+                'film',
+                'series',
+                'musik',
+                'harga',
+                'umur',
+                'jadwal',
+                'skor',
+                'owner',
+                'vip',
+                'premium'
+            ]);
+
+        if (
+            !strongSingleTopic.has(
+                sourceWords[0]
+            )
+        ) {
+            return false;
+        }
+
+        if (overlap.length < 1) {
+            return false;
+        }
+    }
+
+    /*
+     * Cek bahwa callback juga masih membahas
+     * topic yang sama.
+     */
+
+    if (
+        callbackData &&
+        callbackData.startsWith('ask|')
+    ) {
+        const callbackWords =
+            extractTopicWords(
+                callbackData
+            );
+
+        const callbackOverlap =
+            sourceWords.filter(word =>
+                callbackWords.includes(word)
+            );
+
+        if (
+            sourceWords.length >= 2 &&
+            callbackOverlap.length < 2
+        ) {
+            return false;
+        }
+
+        if (
+            sourceWords.length === 1 &&
+            callbackOverlap.length < 1
+        ) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+    const topicWords = [
+    ...new Set([
+        ...sourceWords,
+        ...extractTopicWords(
+            String(answerText || '')
+                .slice(0, 1200)
+        )
+    ])
+];
 
     if (!topicWords.length) {
         return false;
@@ -2789,17 +2993,70 @@ function buildContextButtons(
     answerText = ''
 ) {
     const rawSource =
-        String(sourcePrompt || '')
-            .replace(/\s+/g, ' ')
-            .trim();
+    String(sourcePrompt || '')
+        .replace(/\s+/g, ' ')
+        .trim();
 
-    const answer =
-        String(answerText || '')
-            .trim();
+if (!rawSource) {
+    return [];
+}
 
-    if (!rawSource) {
-        return [];
-    }
+const sourceWords =
+    extractTopicWords(
+        rawSource
+    );
+
+/*
+ * Kalau pesan user cuma slang,
+ * reaksi singkat, atau tidak punya topik:
+ *
+ * JANGAN membuat button topik.
+ *
+ * MENU langka tetap bisa diputuskan
+ * oleh sistem weak-conversation.
+ */
+if (!sourceWords.length) {
+    return [];
+}
+
+if (
+    sourceWords.length === 1 &&
+    ![
+        'persija',
+        'tiktok',
+        'telegram',
+        'instagram',
+        'javascript',
+        'typescript',
+        'nodejs',
+        'node',
+        'html',
+        'css',
+        'json',
+        'python',
+        'railway',
+        'gemini',
+        'coding',
+        'callback',
+        'smp',
+        'sma',
+        'game',
+        'film',
+        'series',
+        'musik',
+        'harga',
+        'umur',
+        'jadwal',
+        'skor',
+        'owner',
+        'vip',
+        'premium'
+    ].includes(
+        sourceWords[0]
+    )
+) {
+    return [];
+}
 
     const sourceWords =
         extractTopicWords(rawSource);
@@ -3582,6 +3839,23 @@ try {
     );
 }
       
+// ============================================================
+// 📨 BUTTON CLICK = PESAN LANGSUNG
+// ============================================================
+
+const selectedMessage =
+    await bot.sendMessage(
+        chatId,
+        action
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;'),
+        {
+            parse_mode: 'HTML',
+            reply_to_message_id:
+                query.message?.message_id
+        }
+    );
         const finalPrompt =
             `[INFO SISTEM: Pengguna menekan tombol interaktif.]\n` +
             `[INFO SISTEM: Tombol tersebut berisi instruksi yang harus diproses sebagai pesan pengguna.]\n` +
@@ -3628,17 +3902,7 @@ try {
         // ============================================================
     // 👻 EFEK "HANGUS" BAWAAN TELEGRAM FIXED!
     // ============================================================
-    
-    // 1. Bikin pesan pancingan (BIARIN MUNCUL DULU BIAR DAPET ANIMASI)
-    const selectedMessage = await bot.sendMessage(
-        chatId,
-        action.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'),
-        {
-            parse_mode: 'HTML',
-            reply_to_message_id: query.message?.message_id
-        }
-    );
-
+   
     // 2. Mulai indikator Ngetik...
     const stopRecordingPresence = startRecordingPresence(chatId);
     let response;
