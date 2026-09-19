@@ -306,8 +306,9 @@ function normalizeTelegramStructure(text) {
     const NBSP = '\u00A0';
 
     let inCodeBlock = false;
-    let insideSubPoint = false;
-    let lastWasHeading = false;
+    let mainPointActive = false;
+    let subPointActive = false;
+    let headingJustSeen = false;
     let pendingBlank = false;
 
     const bulletRegex =
@@ -316,10 +317,10 @@ function normalizeTelegramStructure(text) {
     const numberedRegex =
         /^(\d+[.)])\s+(.+)$/;
 
-    const boldOnlyHeadingRegex =
+    const standaloneBoldHeading =
         /^(?:\*\*[^*\n]+\*\*|<b>[^<\n]+<\/b>)$/;
 
-    const pushBlankOnce = () => {
+    const pushBlank = () => {
         if (
             output.length &&
             output[output.length - 1] !== ''
@@ -328,45 +329,71 @@ function normalizeTelegramStructure(text) {
         }
     };
 
-    for (
-        let i = 0;
-        i < lines.length;
-        i++
-    ) {
-        const raw =
-            String(lines[i] || '');
-
+    for (const rawLine of lines) {
         const trimmed =
-            raw.trim();
+            String(rawLine || '').trim();
 
         if (/^```/.test(trimmed)) {
             if (pendingBlank) {
-                pushBlankOnce();
+                pushBlank();
                 pendingBlank = false;
             }
 
             inCodeBlock =
                 !inCodeBlock;
 
-            output.push(raw);
-            insideSubPoint = false;
-            lastWasHeading = false;
+            output.push(rawLine);
+            mainPointActive = false;
+            subPointActive = false;
+            headingJustSeen = false;
 
             continue;
         }
 
         if (inCodeBlock) {
-            output.push(raw);
+            output.push(rawLine);
             continue;
         }
 
         if (!trimmed) {
+            pendingBlank = true;
+            continue;
+        }
+
+        if (standaloneBoldHeading.test(trimmed)) {
+            if (output.length) {
+                pushBlank();
+            }
+
+            output.push(trimmed);
+
+            mainPointActive = false;
+            subPointActive = false;
+            headingJustSeen = true;
+            pendingBlank = false;
+
+            continue;
+        }
+
+        const numbered =
+            trimmed.match(numberedRegex);
+
+        if (numbered) {
             if (
                 output.length &&
-                output[output.length - 1] !== ''
+                !headingJustSeen
             ) {
-                pendingBlank = true;
+                pushBlank();
             }
+
+            output.push(
+                `${numbered[1]} ${numbered[2].trim()}`
+            );
+
+            mainPointActive = true;
+            subPointActive = false;
+            headingJustSeen = false;
+            pendingBlank = false;
 
             continue;
         }
@@ -374,82 +401,42 @@ function normalizeTelegramStructure(text) {
         const bullet =
             trimmed.match(bulletRegex);
 
-        const numbered =
-            trimmed.match(numberedRegex);
-
-        const isHeading =
-            boldOnlyHeadingRegex.test(trimmed);
-
-        if (isHeading) {
-            if (output.length) {
-                pushBlankOnce();
-            }
-
-            output.push(trimmed);
-
-            insideSubPoint = false;
-            lastWasHeading = true;
-            pendingBlank = false;
-
-            continue;
-        }
-
         if (bullet) {
-            if (pendingBlank && !lastWasHeading) {
-                pushBlankOnce();
-            }
-
             output.push(
                 `${NBSP.repeat(4)}${bullet[1]} ${bullet[2].trim()}`
             );
 
-            insideSubPoint = true;
-            lastWasHeading = false;
+            subPointActive = true;
+            headingJustSeen = false;
             pendingBlank = false;
 
             continue;
         }
 
-        if (
-            numbered &&
-            (
-                lastWasHeading ||
-                insideSubPoint
-            )
-        ) {
-            if (pendingBlank && !lastWasHeading) {
-                pushBlankOnce();
-            }
-
-            output.push(
-                `${NBSP.repeat(4)}${numbered[1]} ${numbered[2].trim()}`
-            );
-
-            insideSubPoint = true;
-            lastWasHeading = false;
-            pendingBlank = false;
-
-            continue;
-        }
-
-        if (insideSubPoint) {
+        if (subPointActive) {
             output.push(
                 `${NBSP.repeat(7)}${trimmed}`
             );
 
-            lastWasHeading = false;
-            pendingBlank = false;
+            continue;
+        }
+
+        if (mainPointActive) {
+            output.push(
+                `${NBSP.repeat(7)}${trimmed}`
+            );
 
             continue;
         }
 
         if (pendingBlank) {
-            pushBlankOnce();
+            pushBlank();
             pendingBlank = false;
         }
 
         output.push(trimmed);
-        lastWasHeading = false;
+
+        headingJustSeen = false;
     }
 
     return output
@@ -457,7 +444,6 @@ function normalizeTelegramStructure(text) {
         .replace(/\n{3,}/g, '\n\n')
         .trim();
 }
-
 // ============================================================
 // AUTO CONVERT MARKDOWN TO TELEGRAM HTML & SANITIZER
 // ============================================================
@@ -2085,9 +2071,40 @@ const history = historyFor(chatId);
         parts: [{ text: h.content }]
     }));
 
+const rankingRequest =
+    /(?:klasemen|standings|ranking|peringkat|posisi|tabel liga|top skor|top assist)/i
+        .test(cleanSearchIntent);
+
+const rankingReminder =
+    rankingRequest
+        ? `
+[SISTEM FORMAT RANKING MUTLAK]
+
+Jawaban ini membahas klasemen/ranking.
+
+WAJIB:
+- Maksimal 10 posisi.
+- Gunakan nomor emoji Telegram:
+1️⃣ 2️⃣ 3️⃣ 4️⃣ 5️⃣ 6️⃣ 7️⃣ 8️⃣ 9️⃣ 🔟
+- Jangan gunakan "1." "2." "3." untuk posisi ranking.
+- Jangan menggunakan bullet • sebagai pengganti nomor ranking.
+- Pertahankan urutan hasil WEB SEARCH.
+- Jangan mengarang poin.
+- Jika poin tersedia, gunakan:
+1️⃣ Nama Tim • (42) Point.
+- Jika poin tidak tersedia, gunakan:
+1️⃣ Nama Tim
+- Gunakan blockquote untuk seluruh daftar ranking.
+- Jangan membuat tabel ASCII atau Markdown.
+- Jangan menaruh penjelasan di tengah daftar.
+`
+        : '';
+        
     const parts = [{
-        text: webContext
-            ? `${finalPrompt}
+    text: webContext
+        ? `${finalPrompt}
+
+${rankingReminder}
 
 [SISTEM WEB SEARCH]
 
@@ -2401,6 +2418,10 @@ async function processAIResponse(
 	
     let text = String(rawResponse || '').trim();
 text = stripInternalLeakage(text);
+text = text
+    .replace(/^\s*>{2,}\s*$/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 
 text = text
     .replace(
@@ -3149,14 +3170,18 @@ try {
     `Notifikasi limit ditangani backend; jangan membuat notifikasi limit sendiri.]`;
             // INJEKSI RAHASIA BIAR FORMAT LIST RAPI & BUTTON MUNCUL
             const formatReminder =
-    `[INFO SISTEM: Format Telegram harus rapi. ` +
-    `Gunakan bullet "•" atau numbering jika memang sesuai struktur. ` +
-    `Sub-point WAJIB memakai indentasi/spasi konsisten. ` +
-    `Baris lanjutan sub-point tidak boleh kembali ke margin kiri. ` +
-    `Gunakan **bold** hanya pada kata/frasa penting yang relevan. ` +
-    `Judul boleh BOLD, bernomor, kapital, dan memakai emoji relevan. ` +
-    `Gunakan ENTER 2x antar bagian utama agar tidak dempet. ` +
-    `Jangan membuat list dengan tanda bintang sebagai bullet.]`;
+    `[INFO SISTEM: FORMAT TELEGRAM MUTLAK. ` +
+    `Judul berdiri sendiri lalu langsung lanjut ke main point pada baris berikutnya. ` +
+    `JANGAN membuat baris kosong setelah judul. ` +
+    `Main point boleh menggunakan nomor 1., 2., 3. dan tetap rata kiri. ` +
+    `Penjelasan lanjutan main point wajib sedikit masuk. ` +
+    `Sub-point hanya gunakan jika memang ada sub-point; jangan membuat • untuk setiap kalimat. ` +
+    `Sub-point wajib memiliki indentasi/spasi. ` +
+    `Baris lanjutan sub-point wajib tetap masuk dan tidak boleh kembali ke kiri. ` +
+    `Setelah main point selesai, gunakan tepat 1 baris kosong sebelum main point berikutnya. ` +
+    `Jangan gunakan 2 baris kosong. ` +
+    `Awal main point/sub-point sebaiknya memiliki kata penting yang BOLD. ` +
+    `Jangan menampilkan marker internal, simbol >>, atau marker backend.]`;
             const aiButtonCount =
     Math.random() < 0.5
         ? 2
