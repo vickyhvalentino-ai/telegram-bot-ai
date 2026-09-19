@@ -3126,9 +3126,6 @@ if (
     return [];
 }
 
-    const sourceWords =
-        extractTopicWords(rawSource);
-
     const answerWords =
         extractTopicWords(answer.slice(0, 1200));
 
