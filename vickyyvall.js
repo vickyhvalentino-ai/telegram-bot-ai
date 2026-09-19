@@ -299,25 +299,12 @@ function normalizeTelegramStructure(text) {
         .split('\n');
 
     const output = [];
-    const NBSP = '\u00A0';
-
-    const SUB_INDENT = NBSP.repeat(4);
-    const SUB_MAX_CHARS = 44;
 
     let inCodeBlock = false;
-    let mainPointActive = false;
-    let subPointActive = false;
-    let previousWasHeading = false;
-    let pendingBlank = false;
+    let keepNextLineSeparate = false;
 
     const headingRegex =
         /^(?:\*\*[^*\n]+\*\*|<b>[^<\n]+<\/b>)$/;
-
-    const mainPointRegex =
-        /^(\d+)\s*\.\s*(.*)$/;
-
-    const subPointRegex =
-        /^(?:[–—-])\s*(.+)$/;
 
     const pushBlankOnce = () => {
         if (
@@ -328,97 +315,6 @@ function normalizeTelegramStructure(text) {
         }
     };
 
-    const wrapSubPoint = value => {
-        const clean = String(value || '')
-            .replace(/\s+/g, ' ')
-            .trim();
-
-        if (!clean) return '';
-
-        const words = clean.split(' ');
-        const wrapped = [];
-
-        let current = '';
-
-        for (const word of words) {
-            const candidate =
-                current
-                    ? `${current} ${word}`
-                    : word;
-
-            if (
-                current &&
-                candidate.length > SUB_MAX_CHARS
-            ) {
-                wrapped.push(
-                    `${SUB_INDENT}${current}`
-                );
-
-                current = word;
-            } else {
-                current = candidate;
-            }
-        }
-
-        if (current) {
-            wrapped.push(
-                `${SUB_INDENT}${current}`
-            );
-        }
-
-        if (!wrapped.length) {
-            return '';
-        }
-
-        wrapped[0] =
-            `${SUB_INDENT}– ${wrapped[0].slice(SUB_INDENT.length)}`;
-
-        return wrapped.join('\n');
-    };
-
-    const appendNaturalContinuation = value => {
-        const clean =
-            String(value || '')
-                .replace(/\s+/g, ' ')
-                .trim();
-
-        if (!clean) return;
-
-        if (
-            !output.length ||
-            output[output.length - 1] === ''
-        ) {
-            output.push(clean);
-            return;
-        }
-
-        if (subPointActive) {
-            const last =
-                output[output.length - 1];
-
-            const cleanLast =
-                String(last)
-                    .split('\n')
-                    .map(part =>
-                        part
-                            .replace(/^\s*[–—-]\s*/, '')
-                            .trim()
-                    )
-                    .filter(Boolean)
-                    .join(' ');
-
-            output[output.length - 1] =
-                wrapSubPoint(
-                    `${cleanLast} ${clean}`
-                );
-
-            return;
-        }
-
-        output[output.length - 1] =
-            `${output[output.length - 1]} ${clean}`;
-    };
-
     for (const rawLine of lines) {
         const trimmed =
             String(rawLine || '')
@@ -426,18 +322,13 @@ function normalizeTelegramStructure(text) {
                 .trim();
 
         if (/^```/.test(trimmed)) {
-            inCodeBlock =
-                !inCodeBlock;
+            inCodeBlock = !inCodeBlock;
 
             output.push(
                 rawLine.replace(/\s+$/g, '')
             );
 
-            mainPointActive = false;
-            subPointActive = false;
-            previousWasHeading = false;
-            pendingBlank = false;
-
+            keepNextLineSeparate = false;
             continue;
         }
 
@@ -445,12 +336,15 @@ function normalizeTelegramStructure(text) {
             output.push(
                 rawLine.replace(/\s+$/g, '')
             );
-
             continue;
         }
 
         if (!trimmed) {
-            pendingBlank = true;
+            if (keepNextLineSeparate) {
+                continue;
+            }
+
+            pushBlankOnce();
             continue;
         }
 
@@ -464,98 +358,85 @@ function normalizeTelegramStructure(text) {
             }
 
             output.push(trimmed);
-
-            mainPointActive = false;
-            subPointActive = false;
-            previousWasHeading = true;
-            pendingBlank = false;
-
+            keepNextLineSeparate = true;
             continue;
         }
 
         const mainPoint =
-            trimmed.match(mainPointRegex);
+            trimmed.match(/^(\d+)\s*\.\s*(.*)$/);
 
         if (mainPoint) {
-            if (
-                output.length &&
-                !previousWasHeading
-            ) {
+            if (output.length) {
                 pushBlankOnce();
             }
 
-            output.push(
-                `${mainPoint[1]}. ${mainPoint[2].trim()}`
-            );
+            const number = mainPoint[1];
+            const body = mainPoint[2].trim();
 
-            mainPointActive = true;
-            subPointActive = false;
-            previousWasHeading = false;
-            pendingBlank = false;
+            const boldTitle =
+                body.match(/^\*\*(.+?)\*\*(?:\s*[:：]\s*(.*))?$/);
 
-            continue;
-        }
+            if (boldTitle) {
+                const title =
+                    boldTitle[1].trim();
 
-        const subPoint =
-            trimmed.match(subPointRegex);
+                const continuation =
+                    String(
+                        boldTitle[2] || ''
+                    ).trim();
 
-        if (
-            subPoint &&
-            (
-                mainPointActive ||
-                subPointActive
-            )
-        ) {
-            const formattedSubPoint =
-                wrapSubPoint(
-                    subPoint[1].trim()
-                );
-
-            if (formattedSubPoint) {
                 output.push(
-                    formattedSubPoint
+                    `${number}. **${title}**`
                 );
+
+                if (continuation) {
+                    output.push(
+                        continuation
+                    );
+                }
+
+                keepNextLineSeparate =
+                    !continuation;
+
+                continue;
             }
 
-            subPointActive = true;
-            previousWasHeading = false;
-            pendingBlank = false;
-
-            continue;
-        }
-
-        if (subPointActive) {
-            appendNaturalContinuation(
-                trimmed
+            output.push(
+                `${number}. ${body}`
             );
 
-            previousWasHeading = false;
-            pendingBlank = false;
-
+            keepNextLineSeparate = false;
             continue;
         }
 
-        if (mainPointActive) {
-            appendNaturalContinuation(
-                trimmed
+        const dashPoint =
+            trimmed.match(
+                /^(?:[–—-])\s*(.+)$/
             );
 
-            previousWasHeading = false;
-            pendingBlank = false;
+        if (dashPoint) {
+            output.push(
+                `– ${dashPoint[1].trim()}`
+            );
 
+            keepNextLineSeparate = false;
             continue;
         }
 
-        if (pendingBlank) {
-            pushBlankOnce();
+        if (keepNextLineSeparate) {
+            output.push(trimmed);
+            keepNextLineSeparate = false;
+            continue;
         }
 
-        output.push(trimmed);
-
-        mainPointActive = false;
-        subPointActive = false;
-        previousWasHeading = false;
-        pendingBlank = false;
+        if (
+            output.length &&
+            output[output.length - 1] !== ''
+        ) {
+            output.push(trimmed);
+        } else {
+            output.push(trimmed);
+        }
     }
 
     return output
@@ -752,84 +633,118 @@ bot.onText(/^\/(start|help)(?:@\w+)?$/i, async (msg) => {
         ? `@${user.username}`
         : 'Tidak ada username';
 
-    const statusText = getStatusLabel(info.status);
+    const statusText =
+        getStatusLabel(info.status);
 
-    const limitText = info.unlimited
-        ? 'Unlimited ∞'
-        : `${info.remaining} / ${info.total}`;
+    const limitText =
+        info.unlimited
+            ? 'Unlimited ∞'
+            : `${info.remaining} / ${info.total}`;
 
-    const usedText = info.unlimited
-        ? `${info.used} penggunaan`
-        : `${info.used} penggunaan`;
+    const usedText =
+        `${info.used} penggunaan`;
 
     const text =
         `<b>✦ VICKYYVALL - AI ✦</b>\n` +
         `<i>YOUR AI • YOUR SPACE • YOUR VIBE</i>\n\n` +
 
         `<blockquote>` +
-        `<b>👤 USER PROFILE</b>\n` +
-        `├ Username : <b>${username}</b>\n` +
-        `├ Status   : <b>${statusText}</b>\n` +
-        `├ AI Limit : <b>${limitText}</b>\n` +
-        `└ Terpakai : <b>${usedText}</b>` +
+        `<b>👤 PROFILE</b>\n` +
+        `› Username : <b>${username}</b>\n` +
+        `› Status   : <b>${statusText}</b>\n` +
+        `› AI Limit : <b>${limitText}</b>\n` +
+        `› Terpakai : <b>${usedText}</b>` +
         `</blockquote>\n\n` +
 
         `<blockquote>` +
         `<b>💎 VIP ACCESS</b>\n` +
-        `├ Harga normal : <s>3̶9̶.̶9̶0̶0̶</s>\n` +
-        `├ Harga VIP    : <b>Rp25.900</b>\n` +
-        `├ Limit utama  : <b>50</b>\n` +
-        `├ Bonus        : <b>+25</b>\n` +
-        `└ Total        : <b>75 AI Limit</b>` +
+        `› Limit utama : <b>50</b>\n` +
+        `› Bonus       : <b>+25</b>\n` +
+        `› Total       : <b>75 AI / hari</b>\n` +
+        `› Reset       : <b>00.00 WIB</b>\n` +
+        `› Harga VIP   : <b>Rp25.900</b>` +
         `</blockquote>\n\n` +
 
-        `<b>vìckyyvall - AI Multifungsi</b> 🏴‍☠️\n\n` +
-        `Teman AI yang siap nemenin lu kapan aja. 😎\n\n` +
-        `Mau ngobrol, cari ide, belajar, coding, bahas bola, ` +
-        `atau sekadar random juga gw gas😹🔥\n\n` +
+        `<blockquote>` +
+        `<b>✍🏻COMMAND BOT</b>\n` +
+        `› <code>/start</code> — menu utama\n` +
+        `› <code>/help</code> — bantuan & menu\n` +
+        `› <code>/ceklimit</code> — cek limit AI\n` +
+        `› <code>/mute</code> — matikan respons AI\n` +
+        `› <code>/unmute</code> — aktifkan respons AI\n` +
+        `› <code>/reset</code> — reset memori chat\n` +
+        `› <code>/addvip @username</code> — owner\n` +
+        `› <code>/addlimit @username jumlah</code> — owner` +
+        `</blockquote>\n\n` +
 
-        `<b>✨ PILIHAN MENU</b>\n` +
-        `Pilih tombol di bawah atau langsung ketik apa yang mau lu obrolin.\n\n` +
+        `<b>vickyyvall - AI multifungsi</b>\n` +
+        `ngobrol, belajar, coding, cari ide, bahas bola, ` +
+        `atau random juga boleh.`;
 
-        `<b>Temukan juga vickyyvall - AI di sini 👇</b>`;
-
-const keyboard = [
-    [
-        { text: '💎 AM Prem 1th', url: 'https://t.me/vickyyvall' },
-        { text: '🛒 Upgrade AI', callback_data: 'ui|vip' }
-    ],
-    [
-        { text: '📊 Cek Limit', callback_data: 'ui|limit' },
-        { text: '🏆 Info VIP', callback_data: 'ui|vip' }
-    ],
+    const keyboard = [
         [
-            { text: '🎵 Tiktok @vickyyvall', url: 'https://www.tiktok.com/@vickyyvall' }
+            {
+                text: '💎 Upgrade AI',
+                callback_data: 'ui|vip'
+            },
+            {
+                text: '📊 Cek Limit',
+                callback_data: 'ui|limit'
+            }
         ],
         [
-            { text: '📸 Instagram @vickyhx013_', url: 'https://www.instagram.com/vickyhx013_' }
+            {
+                text: '🏆 Info VIP',
+                callback_data: 'ui|vip'
+            }
+        ],
+        [
+            {
+                text: '🎵 TikTok @vickyyvall',
+                url: 'https://www.tiktok.com/@vickyyvall'
+            }
+        ],
+        [
+            {
+                text: '📸 Instagram @vickyhx013_',
+                url: 'https://www.instagram.com/vickyhx013_'
+            }
         ],
         randomStartButtons()
     ];
 
-    const mediaUrl = 'https://ibb.co.com/s9tq563Y';
+    const mediaUrl =
+        'https://ibb.co.com/s9tq563Y';
 
     try {
-        await bot.sendPhoto(msg.chat.id, mediaUrl, {
-    caption: text,
-    parse_mode: 'HTML',
-    reply_to_message_id: msg.message_id,
-    reply_markup: { inline_keyboard: keyboard }
-});
+        await bot.sendPhoto(
+            msg.chat.id,
+            mediaUrl,
+            {
+                caption: text,
+                parse_mode: 'HTML',
+                reply_to_message_id:
+                    msg.message_id,
+                reply_markup: {
+                    inline_keyboard:
+                        keyboard
+                }
+            }
+        );
     } catch (error) {
         await sendReply(
-    bot,
-    msg.chat.id,
-    text,
-    {
-        reply_to_message_id: msg.message_id,
-        reply_markup: { inline_keyboard: keyboard }
-    }
-); 
+            bot,
+            msg.chat.id,
+            text,
+            {
+                reply_to_message_id:
+                    msg.message_id,
+                reply_markup: {
+                    inline_keyboard:
+                        keyboard
+                }
+            }
+        );
     }
 });
 
@@ -2538,6 +2453,75 @@ async function processAIResponse(
 	
     let text = String(rawResponse || '').trim();
 text = stripInternalLeakage(text);
+
+const normalizeCasualParagraphs = (
+    value,
+    prompt
+) => {
+    const source =
+        String(prompt || '').toLowerCase();
+
+    const structural =
+        /(?:^|\n)\s*(?:\d+\.\s+|[–—-]\s+)/m.test(value) ||
+        /<blockquote>|<pre>|```/i.test(value);
+
+    const technical =
+        /\b(?:coding|code|kode|script|javascript|typescript|html|css|json|config|debug|error|bug|tutorial|tugas|kuliah|sekolah|laporan|makalah|dokumentasi|analisis|program|fungsi|function|api|telegram|railway|node\.js)\b/i.test(
+            source
+        );
+
+    if (structural || technical) {
+        return value;
+    }
+
+    if (value.includes('\n\n')) {
+        return value
+            .replace(/\n{3,}/g, '\n\n')
+            .trim();
+    }
+
+    if (value.length < 220) {
+        return value;
+    }
+
+    const sentences =
+        value
+            .split(/(?<=[.!?])\s+/u)
+            .map(part => part.trim())
+            .filter(Boolean);
+
+    if (sentences.length < 3) {
+        return value;
+    }
+
+    const paragraphs = [];
+    let current = [];
+
+    for (const sentence of sentences) {
+        current.push(sentence);
+
+        if (current.length >= 2) {
+            paragraphs.push(
+                current.join(' ')
+            );
+
+            current = [];
+        }
+    }
+
+    if (current.length) {
+        paragraphs.push(
+            current.join(' ')
+        );
+    }
+
+    return paragraphs.join('\n\n');
+};
+
+text = normalizeCasualParagraphs(
+    text,
+    sourcePrompt
+);
 text = text
     .replace(
         /<<<BUTTONS:[\s\S]*?>>>/gi,
@@ -2819,21 +2803,59 @@ if (limitWarning) {
     text += limitWarning;
 }
 
-// JANGAN paksa tombol rekomendasi generik.
-// Jika AI membuat tombol sendiri, gunakan tombol AI tersebut.
-// Jika AI tidak membuat tombol, biarkan tidak ada tombol.
-//
-// Tujuannya:
-// AI SENDIRI yang menentukan apakah tombol diperlukan,
-// berapa jumlahnya, apa topiknya, dan apakah memakai emoji.
-//
-// Tidak ada lagi:
-// - randomStartButtons()
-// - START_BUTTON_POOL sebagai fallback
-// - tombol "Trik hp"
-// - tombol "Fakta random"
-// - tombol "Rekomendasi musik"
-// - tombol generik lain yang tidak berkaitan dengan percakapan.
+const hasSubstantialAnswer =
+    String(text || '').trim().length >= 80;
+
+const isSimpleChat =
+    /^(?:hai|halo|hi|hello|iya|iyaaa|oke|ok|siap|yaa|ya|makasih|terima kasih|thanks|thx)\b/i
+        .test(
+            String(sourcePrompt || '').trim()
+        );
+
+if (
+    inline_keyboard.length < 2 &&
+    hasSubstantialAnswer &&
+    !isSimpleChat &&
+    !isAlightMotionTopic(sourcePrompt)
+) {
+    const cleanTopic =
+        String(sourcePrompt || '')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 42);
+
+    const fallbackButtons = [
+        {
+            text: '🧠 Bahas lebih lanjut',
+            callback_data:
+                `ask|bahas lebih lanjut tentang ${cleanTopic}`
+        },
+        {
+            text: '💡 Kasih contoh',
+            callback_data:
+                `ask|kasih contoh yang relevan dengan ${cleanTopic}`
+        },
+        {
+            text: '🔎 Cek detail',
+            callback_data:
+                `ask|jelaskan detail penting tentang ${cleanTopic}`
+        }
+    ];
+
+    while (inline_keyboard.length < 2) {
+        const nextButton =
+            fallbackButtons[inline_keyboard.length];
+
+        if (!nextButton) break;
+
+        inline_keyboard.push(
+            nextButton
+        );
+    }
+
+    inline_keyboard =
+        inline_keyboard.slice(0, 3);
+}
 
 if (!text && !imageToSent && !fileToSend) {
     text = '😭 AI nggak menghasilkan jawaban kali ini.';
@@ -3168,6 +3190,10 @@ try {
     } catch {}
 
 } finally {
+
+    await new Promise(resolve =>
+        setTimeout(resolve, 3000)
+    );
 
     aiBusyChats.delete(chatId);
 }
