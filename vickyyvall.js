@@ -137,6 +137,7 @@ function getUserRecord(msg) {
             status: isOwner(msg) ? 'OWNER' : 'NONVIP',
             vip: isOwner(msg),
             aiLimit: isOwner(msg) ? null : NON_VIP_LIMIT,
+            limitBonus: 0,
             aiUsed: 0,
             lastResetDate: todayWIB,
             createdAt: new Date().toISOString(),
@@ -148,9 +149,14 @@ function getUserRecord(msg) {
 
         // 🔥 LOGIKA RESET HARIAN OTOMATIS JAM 00:00 WIB 🔥
         if (record.lastResetDate !== todayWIB) {
-            record.aiUsed = 0;
-            record.lastResetDate = todayWIB;
-        }
+    record.aiUsed = 0;
+    record.limitBonus = 0;
+    record.lastResetDate = todayWIB;
+}
+
+if (!Number.isFinite(Number(record.limitBonus))) {
+    record.limitBonus = 0;
+}
 
         record.username = normalizeUsername(user.username);
         record.firstName = String(user.first_name || '');
@@ -190,27 +196,45 @@ function getUserLimitInfo(msg) {
         };
     }
 
-    if (user.status === 'VIP' || user.vip === true) {
-        return {
-            status: 'VIP',
-            total: VIP_TOTAL_LIMIT,
-            used: Number(user.aiUsed || 0),
-            remaining: Math.max(0, VIP_TOTAL_LIMIT - Number(user.aiUsed || 0)),
-            unlimited: false
-        };
-    }
+    const bonus = Math.max(
+        0,
+        Number(user.limitBonus || 0)
+    );
+
+    const total =
+        user.status === 'VIP' || user.vip === true
+            ? VIP_TOTAL_LIMIT + bonus
+            : NON_VIP_LIMIT + bonus;
 
     return {
-        status: 'NONVIP',
-        total: NON_VIP_LIMIT,
+        status:
+            user.status === 'VIP' || user.vip === true
+                ? 'VIP'
+                : 'NONVIP',
+        total,
         used: Number(user.aiUsed || 0),
-        remaining: Math.max(0, NON_VIP_LIMIT - Number(user.aiUsed || 0)),
+        remaining: Math.max(
+            0,
+            total - Number(user.aiUsed || 0)
+        ),
         unlimited: false
     };
 }
 
 function formatRupiah(number) {
     return new Intl.NumberFormat('id-ID').format(Number(number || 0));
+}
+
+function getStatusLabel(status) {
+    if (status === 'OWNER') return '👑 OWNER';
+    if (status === 'VIP') return '🏆 VIP';
+    return '👤 NON-VIP';
+}
+
+function getLimitLabel(info) {
+    if (info.unlimited) return 'Unlimited ∞';
+
+    return `${info.remaining} / ${info.total}`;
 }
 
 function getStatusLabel(status) {
@@ -268,7 +292,7 @@ function displayName(msg) {
 }
 
 function isCommand(text) {
-    return /^(?:\/(?:start|help|mute|unmute|status|reset)(?:@\w+)?|\.addvip(?:\s|$)|\.ceklimit(?:\s|$))/i.test(
+    return /^(?:\/(?:start|help|mute|unmute|status|reset|addvip|addlimit|ceklimit)(?:@\w+)?(?:\s|$))/i.test(
         String(text || '').trim()
     );
 }
@@ -653,7 +677,7 @@ function findUserByUsername(username) {
 // OWNER ONLY
 // ============================================================
 
-bot.onText(/^\.addvip(?:\s+(.+))?$/i, async (msg, match) => {
+bot.onText(/^\/addvip(?:\s+(.+))?$/i, async (msg, match) => {
 
     if (!isOwner(msg)) {
         await sendReply(
@@ -661,7 +685,7 @@ bot.onText(/^\.addvip(?:\s+(.+))?$/i, async (msg, match) => {
             msg.chat.id,
             `<blockquote>` +
             `<b>⛔ AKSES DITOLAK</b>\n\n` +
-            `Perintah <code>.addvip</code> hanya bisa digunakan oleh owner bot.` +
+            `Perintah <code>/addvip</code> hanya bisa digunakan oleh owner bot.` +
             `</blockquote>`
         );
         return;
@@ -677,9 +701,9 @@ bot.onText(/^\.addvip(?:\s+(.+))?$/i, async (msg, match) => {
             `<blockquote>` +
             `<b>⚠️ FORMAT SALAH</b>\n\n` +
             `Gunakan format:\n\n` +
-            `<code>.addvip @username</code>\n\n` +
+            `<code>/addvip @username</code>\n\n` +
             `Contoh:\n` +
-            `<code>.addvip @contohuser</code>\n\n` +
+            `<code>/addvip @contohuser</code>\n\n` +
             `Jangan lupa tanda <b>@</b>.` +
             `</blockquote>`
         );
@@ -701,6 +725,22 @@ bot.onText(/^\.addvip(?:\s+(.+))?$/i, async (msg, match) => {
         );
         return;
     }
+
+if (!normalizeUsername(target.username)) {
+    await sendReply(
+        bot,
+        msg.chat.id,
+        `<blockquote>` +
+        `<b>⚠️ USERNAME TIDAK TERSEDIA</b>\n\n` +
+        `Akun ini wajib memiliki username Telegram aktif agar bisa dikelola oleh <code>/addvip @username</code>.` +
+        `</blockquote>`,
+        {
+            reply_to_message_id: msg.message_id
+        }
+    );
+
+    return;
+}
 
     target.status = 'VIP';
     target.vip = true;
@@ -732,13 +772,133 @@ bot.onText(/^\.addvip(?:\s+(.+))?$/i, async (msg, match) => {
 }); 
 
 // ============================================================
-// 📊 .CEKLIMIT
-// SUPPORT:
-// .ceklimit
-// .ceklimit @username
+// /ADDLIMIT @USERNAME JUMLAH
+// OWNER ONLY
 // ============================================================
 
-bot.onText(/^\.ceklimit(?:\s+(.+))?$/i, async (msg, match) => {
+bot.onText(/^\/addlimit(?:@\w+)?(?:\s+(.+))?$/i, async (msg, match) => {
+
+    if (!isOwner(msg)) {
+        await sendReply(
+            bot,
+            msg.chat.id,
+            `<blockquote>` +
+            `<b>⛔ AKSES DITOLAK</b>\n\n` +
+            `Perintah <code>/addlimit</code> hanya bisa digunakan oleh owner bot.` +
+            `</blockquote>`,
+            {
+                reply_to_message_id: msg.message_id
+            }
+        );
+        return;
+    }
+
+    const parts = String(match?.[1] || '')
+        .trim()
+        .split(/\s+/);
+
+    const argument = parts[0] || '';
+    const amount = Number(parts[1]);
+
+    if (
+        !/^@[A-Za-z0-9_]{5,32}$/.test(argument) ||
+        !Number.isInteger(amount) ||
+        amount < 1 ||
+        amount > 1000
+    ) {
+        await sendReply(
+            bot,
+            msg.chat.id,
+            `<blockquote>` +
+            `<b>⚠️ FORMAT SALAH</b>\n\n` +
+            `Gunakan:\n` +
+            `<code>/addlimit @username jumlah</code>\n\n` +
+            `Contoh:\n` +
+            `<code>/addlimit @contohuser 5</code>\n\n` +
+            `Jumlah tambahan: <b>1–1000</b> chat.` +
+            `</blockquote>`,
+            {
+                reply_to_message_id: msg.message_id
+            }
+        );
+        return;
+    }
+
+    const username = normalizeUsername(argument);
+    const target = findUserByUsername(username);
+
+    if (!target) {
+        await sendReply(
+            bot,
+            msg.chat.id,
+            `<blockquote>` +
+            `<b>🔎 USER TIDAK DITEMUKAN</b>\n\n` +
+            `@${escapeHTML(username)} belum tercatat di database bot.\n\n` +
+            `Minta user tersebut chat bot minimal sekali terlebih dahulu.` +
+            `</blockquote>`,
+            {
+                reply_to_message_id: msg.message_id
+            }
+        );
+        return;
+    }
+
+    if (!normalizeUsername(target.username)) {
+        await sendReply(
+            bot,
+            msg.chat.id,
+            `<blockquote>` +
+            `<b>⚠️ USERNAME TIDAK TERSEDIA</b>\n\n` +
+            `User ini wajib memiliki username Telegram aktif.` +
+            `</blockquote>`,
+            {
+                reply_to_message_id: msg.message_id
+            }
+        );
+        return;
+    }
+
+    target.limitBonus =
+        Math.max(
+            0,
+            Number(target.limitBonus || 0)
+        ) + amount;
+
+    target.updatedAt =
+        new Date().toISOString();
+
+    saveDb();
+
+    const info = getUserLimitInfo({
+        from: target
+    });
+
+    await sendReply(
+        bot,
+        msg.chat.id,
+        `<blockquote>` +
+        `<b>✅ LIMIT BERHASIL DITAMBAHKAN</b>\n\n` +
+        `👤 User : <b>@${escapeHTML(username)}</b>\n` +
+        `➕ Bonus : <b>+${amount}</b> chat\n` +
+        `📦 Total hari ini : <b>${info.total}</b>\n` +
+        `📈 Terpakai : <b>${info.used}</b>\n` +
+        `⚡ Sisa : <b>${info.remaining}</b>\n\n` +
+        `Bonus akan otomatis kembali ke <b>0</b> saat reset 00.00 WIB.` +
+        `</blockquote>`,
+        {
+            reply_to_message_id: msg.message_id
+        }
+    );
+});
+
+// ============================================================
+// 📊 .CEKLIMIT
+// SUPPORT:
+// /ceklimit
+// /ceklimit @username
+// ============================================================
+
+bot.onText(/^\/ceklimit(?:@\w+)?(?:\s+(.+))?$/i, async (msg, match) => {
 
     const argument = String(match?.[1] || '').trim();
 
@@ -803,9 +963,9 @@ bot.onText(/^\.ceklimit(?:\s+(.+))?$/i, async (msg, match) => {
             `<blockquote>` +
             `<b>⚠️ FORMAT SALAH</b>\n\n` +
             `Gunakan:\n` +
-            `<code>.ceklimit @username</code>\n\n` +
+            `<code>/ceklimit @username</code>\n\n` +
             `Contoh:\n` +
-            `<code>.ceklimit @vickyyvall</code>` +
+            `<code>/ceklimit @vickyyvall</code>` +
             `</blockquote>`,
 
             {
@@ -851,11 +1011,16 @@ bot.onText(/^\.ceklimit(?:\s+(.+))?$/i, async (msg, match) => {
 
     const isTargetOwner = target.status === 'OWNER';
 
-    const total = isTargetOwner
-        ? 'Unlimited ∞'
-        : target.status === 'VIP'
-            ? VIP_TOTAL_LIMIT
-            : NON_VIP_LIMIT;
+    const bonus = Math.max(
+    0,
+    Number(target.limitBonus || 0)
+);
+
+const total = isTargetOwner
+    ? 'Unlimited ∞'
+    : target.status === 'VIP'
+        ? VIP_TOTAL_LIMIT + bonus
+        : NON_VIP_LIMIT + bonus;
 
     const used = Number(target.aiUsed || 0);
 
@@ -1277,7 +1442,13 @@ async function startWebSearchStatusBubble(
     let statusMessage = null;
     let timer = null;
     let wake = null;
+
     let dotIndex = 0;
+    let topicIndex = 0;
+    let mode = 'searching';
+    let currentTopic = '';
+    let stageEndsAt = 0;
+    let editing = false;
 
     const stop = () => {
         stopped = true;
@@ -1310,40 +1481,27 @@ async function startWebSearchStatusBubble(
             }, ms);
         });
 
-    const editStatus = async baseText => {
-        if (
-            !statusMessage ||
-            stopped
-        ) {
-            return;
-        }
-
-        const dots = [
-            '.',
-            '..',
-            '...'
-        ];
-
-        const text =
-            `${baseText}${dots[dotIndex]}`;
-
-        dotIndex =
-            (dotIndex + 1) %
-            dots.length;
-
-        try {
-            await bot.editMessageText(
-                text,
-                {
-                    chat_id: chatId,
-                    message_id:
-                        statusMessage.message_id
-                }
-            );
-        } catch {}
-    };
+    const dots = [
+        '.',
+        '..',
+        '...'
+    ];
 
     const getSubject = value => {
+        let cleaned = String(value || '');
+
+        cleaned = cleaned
+            .replace(/\[INFO SISTEM:[\s\S]*?\]/gi, ' ')
+            .replace(/Permintaan pengguna dari tombol\s*:/gi, ' ')
+            .replace(/Waktu sekarang[^.\n]*/gi, ' ')
+            .replace(/User ini statusnya[^.\n]*/gi, ' ')
+            .replace(/Limit hanya berlaku[^.\n]*/gi, ' ')
+            .replace(/WEB SEARCH AKTIF[\s\S]*/gi, ' ')
+            .replace(/<<<BUTTONS:[\s\S]*?>>>/gi, ' ')
+            .replace(/https?:\/\/\S+/gi, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+
         const stopWords = new Set([
             'apa',
             'apakah',
@@ -1386,8 +1544,6 @@ async function startWebSearchStatusBubble(
             'jadwal',
             'tanggal',
             'lawan',
-            'apa',
-            'siapa',
             'main',
             'tanding',
             'pertandingan',
@@ -1397,32 +1553,17 @@ async function startWebSearchStatusBubble(
             'berapa'
         ]);
 
-        const words =
-            String(value || '')
-                .replace(/https?:\/\/\S+/gi, '')
-                .replace(/[^\p{L}\p{N}\s-]/gu, ' ')
-                .split(/\s+/)
-                .filter(Boolean)
-                .filter(word =>
-                    !stopWords.has(
-                        word.toLowerCase()
-                    )
-                )
-                .slice(0, 4);
+        const words = cleaned
+            .replace(/[^\p{L}\p{N}\s-]/gu, ' ')
+            .split(/\s+/)
+            .filter(Boolean)
+            .filter(word => !stopWords.has(word.toLowerCase()))
+            .slice(0, 5);
 
         return words.join(' ').trim();
     };
 
-    const subject =
-        getSubject(query);
-
-    const contextualize = topic => {
-        if (!subject) {
-            return topic;
-        }
-
-        return `${topic} for ${subject}`;
-    };
+    const subject = getSubject(query);
 
     const topics = [
         'Checking the main result',
@@ -1527,10 +1668,68 @@ async function startWebSearchStatusBubble(
         'Scanning the latest information'
     ];
 
-    const shuffled =
-        [...topics].sort(
-            () => Math.random() - 0.5
-        );
+    const shuffled = [...topics];
+
+    for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+
+    const getTopicDuration = () => {
+        const roll = Math.random();
+
+        if (roll < 0.42) {
+            return Math.floor(Math.random() * 301) + 350;
+        }
+
+        if (roll < 0.72) {
+            return Math.floor(Math.random() * 401) + 550;
+        }
+
+        if (roll < 0.92) {
+            return Math.floor(Math.random() * 501) + 950;
+        }
+
+        return Math.floor(Math.random() * 1001) + 1700;
+    };
+
+    const editStatus = async () => {
+        if (
+            !statusMessage ||
+            stopped ||
+            editing
+        ) {
+            return;
+        }
+
+        editing = true;
+
+        try {
+            const currentText =
+                mode === 'searching'
+                    ? '🔍Searching'
+                    : `⏳Processing: ${currentTopic}`;
+
+            const text =
+                `${currentText}${dots[dotIndex]}`;
+
+            dotIndex =
+                (dotIndex + 1) %
+                dots.length;
+
+            await bot.editMessageText(
+                text,
+                {
+                    chat_id: chatId,
+                    message_id:
+                        statusMessage.message_id
+                }
+            );
+        } catch (error) {
+        } finally {
+            editing = false;
+        }
+    };
 
     try {
         statusMessage =
@@ -1544,60 +1743,47 @@ async function startWebSearchStatusBubble(
                 }
             );
 
-        if (stopped) {
-            return stop;
-        }
+        mode = 'searching';
 
-        (async () => {
-            let currentBase =
-                '🔍Searching';
+        stageEndsAt =
+            Date.now() +
+            Math.floor(
+                Math.random() * 1601
+            ) +
+            900;
 
-            let topicIndex = 0;
-
-            let stageEndsAt =
-                Date.now() +
-                Math.floor(
-                    Math.random() * 701
-                ) +
-                300;
-
+        const loop = async () => {
             while (!stopped) {
-                const now =
-                    Date.now();
+                const now = Date.now();
 
-                if (
-                    now >=
-                    stageEndsAt
-                ) {
-                    const rawTopic =
+                if (now >= stageEndsAt) {
+                    mode = 'topic';
+
+                    currentTopic =
                         shuffled[
                             topicIndex %
                             shuffled.length
                         ];
 
-                    currentBase =
-                        `⏳${contextualize(
-                            rawTopic
-                        )}`;
-
                     topicIndex++;
+
+                    if (subject) {
+                        currentTopic =
+                            `${currentTopic} for ${subject}`;
+                    }
 
                     stageEndsAt =
                         Date.now() +
-                        Math.floor(
-                            Math.random() *
-                            901
-                        ) +
-                        900;
+                        getTopicDuration();
                 }
 
-                await editStatus(
-                    currentBase
-                );
+                await editStatus();
 
-                await waitOrStop(600);
+                await waitOrStop(500);
             }
-        })();
+        };
+
+        loop();
 
         return stop;
     } catch (error) {
@@ -1674,17 +1860,23 @@ if (
         searchHistoryContext
     )
 ) {
-    stopSearchStatus =
-        await startWebSearchStatusBubble(
-            chatId,
-            replyToId,
-            finalPrompt
-        );
-}
+    const cleanWebQuery = String(finalPrompt)
+    .replace(/\[INFO SISTEM:[\s\S]*?\]/gi, ' ')
+    .replace(/Permintaan pengguna dari tombol\s*:/gi, ' ')
+    .replace(/<<<BUTTONS:[\s\S]*?>>>/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+stopSearchStatus =
+    await startWebSearchStatusBubble(
+        chatId,
+        replyToId,
+        cleanWebQuery
+    );
 
 const webData =
     await searchWeb(
-        finalPrompt,
+        cleanWebQuery,
         searchHistoryContext
     );
 
@@ -1707,6 +1899,8 @@ console.log(
 console.log(
     `[WEB SEARCH] Query aktual: ${webData.searchQuery}`
 );
+
+}
 
 } catch (webError) {
     console.error(
@@ -1967,26 +2161,29 @@ function buildAMPremButtons() {
 function buildLimitWarning(info) {
     if (!info || info.unlimited) return '';
 
-    if (info.status === 'NONVIP' && (Number(info.remaining) === 8 || Number(info.remaining) === 7)) {
+    if (
+        info.status === 'NONVIP' &&
+        Number(info.remaining) === 3
+    ) {
         return (
             `\n\n<blockquote>` +
-            `<b>🏷️ BLACKTICK AI NOTICE</b>\n` +
-            `⚠️ limit AI lu mulai menipis: <b>${info.remaining} chat</b> tersisa dari ${info.total} hari ini.\n\n` +
-            `limit chat AI dihitung hanya saat lu ngobrol dengan AI dan otomatis direset setiap <b>00.00 WIB (12 malam)</b>.\n` +
-            `kalau mau lanjut lebih banyak tanpa cepat mentok, lu bisa upgrade ke <b>VIP</b>.\n\n` +
-            `💎 VIP: <b>75 chat AI / hari</b>\n` +
-            `📱 upgrade: Telegram / WhatsApp di bawah.` +
+            `<b>⚠️ LIMIT AI MENIPIS</b>\n` +
+            `Sisa <b>3 chat</b> AI hari ini.\n` +
+            `Reset otomatis <b>00.00 WIB</b>.\n` +
+            `Kalau butuh lebih banyak, VIP tersedia.` +
             `</blockquote>`
         );
     }
 
-    if (info.status === 'VIP' && Number(info.remaining) === 70) {
+    if (
+        info.status === 'NONVIP' &&
+        Number(info.remaining) === 1
+    ) {
         return (
             `\n\n<blockquote>` +
-            `<b>🏷️ BLACKTICK AI NOTICE</b>\n` +
-            `ℹ️ sisa limit VIP lu sekarang <b>70 chat</b>.\n\n` +
-            `limit VIP akan otomatis direset setiap <b>00.00 WIB (12 malam)</b>.\n` +
-            `santai, akses VIP masih aktif dan limit akan kembali penuh saat reset.` +
+            `<b>🚨 LIMIT AI DARURAT</b>\n` +
+            `Sisa <b>1 chat</b> AI hari ini.\n` +
+            `Setelah habis, tunggu reset <b>00.00 WIB</b> atau upgrade VIP.` +
             `</blockquote>`
         );
     }
@@ -2016,10 +2213,12 @@ function buildMembershipText() {
         `└ Reset: <b>00.00 WIB (12 malam)</b>\n\n` +
         `💸 Harga normal: <s>Rp39.900</s>\n` +
         `🔥 Harga VIP: <b>Rp25.900</b>\n\n` +
+        `⚠️ <b>Syarat wajib:</b> lu harus punya <b>username Telegram (@username)</b> yang aktif dan bisa dicari.\n` +
+`Tanpa username, akun lu tidak bisa diproses lewat <code>/addvip @username</code>.` +
         `VIP cocok buat lu yang sering ngobrol, coding, belajar, cari ide, atau butuh AI lebih sering tanpa cepat mentok limit NON-VIP.` +
         `</blockquote>\n\n` +
-        `<b>📱 Mau upgrade?</b>\n` +
-        `Klik Telegram atau WhatsApp di bawah buat tanya dan order.`
+        `<b>💎 Mau upgrade?</b>\n` +
+        `👇🏻Klik Telegram atau WhatsApp di bawah buat tanya dan order.`
     );
 }
 
@@ -2036,7 +2235,21 @@ async function processAIResponse(
 ) {
 	
     let text = String(rawResponse || '').trim();
-    text = stripInternalLeakage(text);
+text = stripInternalLeakage(text);
+
+text = text
+    .replace(
+        /<blockquote>[\s\S]*?BLACKTICK AI NOTICE[\s\S]*?<\/blockquote>/gi,
+        ''
+    )
+    .trim();
+
+text = text
+    .replace(
+        /(?:^|\n)\s*BLACKTICK AI NOTICE[\s\S]*?(?=\n\n|$)/gi,
+        ''
+    )
+    .trim();
 
     // 1. EXTRACT IMAGE (NEW SAFE SYNTAX <<<IMAGE: ...>>>)
 
@@ -2324,100 +2537,155 @@ if (!data.startsWith('ask|')) {
     return;
 }
 
-        const action = data.slice(4).trim();
+const action = data.slice(4).trim();
 
 if (!action) {
     await bot.answerCallbackQuery(query.id);
     return;
 }
 
-// ============================================================
-// 🔒 ANTI-SPAM BUTTON AI
-// ============================================================
 const buttonMessageId =
     query.message?.message_id;
+
+const buttonKey =
+    `${chatId}:${buttonMessageId}:${data}`;
+
+if (!buttonMessageId) {
+    await bot.answerCallbackQuery(
+        query.id,
+        {
+            text: 'Tombol ini sudah tidak aktif.',
+            show_alert: false
+        }
+    );
+    return;
+}
+
+if (usedAIButtons.has(buttonKey)) {
+    await bot.answerCallbackQuery(
+        query.id,
+        {
+            text: 'Tombol ini sudah diproses.',
+            show_alert: false
+        }
+    );
+    return;
+}
 
 if (aiBusyChats.has(chatId)) {
     await bot.answerCallbackQuery(
         query.id,
         {
-            text:
-                'AI masih ngerjain respons sebelumnya 😭 tunggu bentar.',
+            text: 'AI masih memproses tombol sebelumnya.',
             show_alert: false
         }
     );
-
     return;
 }
+
+usedAIButtons.add(buttonKey);
+
+const lockTimer = setTimeout(
+    () => usedAIButtons.delete(buttonKey),
+    24 * 60 * 60 * 1000
+);
+
+if (
+    typeof lockTimer.unref === 'function'
+) {
+    lockTimer.unref();
+}
+
+aiBusyChats.add(chatId);
 
 await bot.answerCallbackQuery(
     query.id,
     {
-        text:
-            `Lagi diproses bentar ngab: ${action}...`,
+        text: 'Lagi diproses bentar...',
         show_alert: false
     }
 );
-        
-        const finalPrompt =
-            `[INFO SISTEM: Pengguna menekan tombol interaktif.]\n` +
-            `[INFO SISTEM: Tombol tersebut berisi instruksi yang harus diproses sebagai pesan pengguna.]\n` +
-            `[INFO SISTEM: Waktu sekarang ${nowWIB()} WIB.]\n\n` +
-            `Permintaan pengguna dari tombol:\n${action}`;
-
-aiBusyChats.add(chatId);
 
 try {
-    // ============================================================
-    // 🔐 LIMIT CHECK UNTUK BUTTON AI (CEK DULU SEBELUM BIKIN PESAN)
-    // ============================================================
-    const callbackUser = query.from || {};
+
+    try {
+        const currentKeyboard =
+            query.message?.reply_markup?.inline_keyboard || [];
+
+        const updatedKeyboard =
+            currentKeyboard
+                .map(row =>
+                    row.filter(
+                        button =>
+                            button.callback_data !== data
+                    )
+                )
+                .filter(row => row.length > 0);
+
+        await bot.editMessageReplyMarkup(
+            updatedKeyboard.length
+                ? {
+                    inline_keyboard:
+                        updatedKeyboard
+                }
+                : {
+                    inline_keyboard: []
+                },
+            {
+                chat_id: chatId,
+                message_id: buttonMessageId
+            }
+        );
+
+    } catch (e) {
+        console.error(
+            '[AI BUTTON REMOVE ERROR]',
+            e.message
+        );
+    }
+
+    const finalPrompt =
+        `[INFO SISTEM: Pengguna menekan tombol interaktif.]\n` +
+        `[INFO SISTEM: Perlakukan instruksi tombol sebagai permintaan pengguna.]\n` +
+        `[INFO SISTEM: Waktu sekarang ${nowWIB()} WIB.]\n\n` +
+        `Permintaan pengguna dari tombol:\n${action}`;
+
     const callbackMsg = {
-        from: callbackUser,
+        from: query.from || {},
         chat: query.message?.chat || {},
-        message_id: query.message?.message_id
+        message_id: buttonMessageId
     };
 
-    const limitCheck = consumeAiLimit(callbackMsg);
+    const limitCheck =
+        consumeAiLimit(callbackMsg);
 
     if (!limitCheck.allowed) {
-        const expired = buildLimitExpiredMessage(limitCheck.info);
 
-        await bot.answerCallbackQuery(query.id, {
-            text: 'Limit AI lu udah habis 😭',
-            show_alert: false
-        });
+        const expired =
+            buildLimitExpiredMessage(
+                limitCheck.info
+            );
 
         await sendReply(
             bot,
             chatId,
             expired.text,
             {
-                reply_to_message_id: query.message?.message_id,
+                reply_to_message_id:
+                    buttonMessageId,
                 reply_markup: {
-                    inline_keyboard: expired.keyboard
+                    inline_keyboard:
+                        expired.keyboard
                 }
             }
         );
+
         return;
     }
 
-        // ============================================================
-    // 👻 EFEK "HANGUS" BAWAAN TELEGRAM FIXED!
-    // ============================================================
-    
-    // 1. Bikin pesan pancingan (BIARIN MUNCUL DULU BIAR DAPET ANIMASI)
-    const selectedMessage = await bot.sendMessage(
-        chatId,
-        action.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'),
-        {
-            parse_mode: 'HTML',
-            reply_to_message_id: query.message?.message_id
-        }
-    );
+    const stopRecordingPresence =
+        startRecordingPresence(chatId);
 
-    // 2. Mulai indikator Ngetik...
-    const stopRecordingPresence = startRecordingPresence(chatId);
     let response;
 
     try {
@@ -2426,50 +2694,54 @@ try {
             finalPrompt,
             null,
             null,
-            selectedMessage.message_id
+            buttonMessageId
         );
     } finally {
         stopRecordingPresence();
     }
 
-    // 3. Kirim balasan AI (Nge-quote pesan pilihan lu)
-    const finalSavedText = await processAIResponse(
-        chatId,
-        response,
-        selectedMessage.message_id,
-        finalPrompt,
-        limitCheck.info,
-        {
-            reply_parameters: {
-                message_id: selectedMessage.message_id,
-                quote: action // Nge-lock teks button pilihan lu
-            }
-        }
-    );
-  
-    pushHistory(chatId, 'user', finalPrompt);
-    pushHistory(chatId, 'assistant', finalSavedText);
+    const finalSavedText =
+        await processAIResponse(
+            chatId,
+            response,
+            buttonMessageId,
+            action,
+            limitCheck.info
+        );
 
-    // EFEK "LINGER TYPING" DIPANJANGIN! 🔥
-    bot.sendChatAction(chatId, 'typing').catch(() => {});
-    // Tembak lagi 2 detik kemudian biar ngetiknya mutlak stay 3-5 detik di atas layar!
-    setTimeout(() => bot.sendChatAction(chatId, 'typing').catch(() => {}), 2000);
+    pushHistory(
+        chatId,
+        'user',
+        action
+    );
+
+    pushHistory(
+        chatId,
+        'assistant',
+        finalSavedText
+    );
 
 } catch (error) {
-    console.error('[AI BUTTON ERROR]', error);
+
+    console.error(
+        '[AI BUTTON ERROR]',
+        error
+    );
 
     try {
         await sendReply(
             bot,
             chatId,
-            '😭 Waduh, tombolnya kepencet tapi AI lagi ngadrt. Coba kirim pertanyaannya langsung.'
+            '😭 tombol sudah diproses, tapi AI lagi bermasalah. coba kirim pertanyaannya langsung.',
+            {
+                reply_to_message_id:
+                    buttonMessageId
+            }
         );
     } catch {}
 
 } finally {
 
-    // WAJIB dibuka lagi dalam kondisi apa pun:
-    // sukses, limit habis, error, atau proses berhenti.
     aiBusyChats.delete(chatId);
 }
 
@@ -2493,8 +2765,8 @@ bot.on('message', async (msg) => {
     if (!text && !getMediaFromMessage(msg)) return;
     if (isCommand(text)) return;
     
-if (/^\.addvip(?:\s|$)/i.test(text)) return;
-if (/^\.ceklimit(?:\s|$)/i.test(text)) return;
+if (/^\/addvip(?:\s|$)/i.test(text)) return;
+if (/^\/ceklimit(?:\s|$)/i.test(text)) return;
 const chatId = String(msg.chat.id);
 
 if (aiMutedChats.has(chatId)) return;
@@ -2544,12 +2816,22 @@ try {
     `Total limit hariannya: ${limitCheck.info.unlimited ? 'Unlimited' : limitCheck.info.total}. ` +
     `Sisa limit setelah pesan ini: ${limitCheck.info.unlimited ? 'Unlimited' : limitCheck.info.remaining}. ` +
     `Limit hanya berlaku untuk chat AI dan reset otomatis setiap 00.00 WIB Asia/Jakarta. ` +
-    `${limitCheck.info.status === 'NONVIP' && (limitCheck.info.remaining === 8 || limitCheck.info.remaining === 7) ? 'BACKEND AKAN MENAMBAHKAN NOTIFIKASI LIMIT; JANGAN MENULIS PERINGATAN LIMIT LAGI AGAR TIDAK DUPLIKAT.' : ''} ` +
-    `${limitCheck.info.status === 'VIP' && limitCheck.info.remaining === 70 ? 'BACKEND AKAN MENAMBAHKAN NOTIFIKASI VIP 70; JANGAN MENULIS PERINGATAN LIMIT LAGI AGAR TIDAK DUPLIKAT.' : ''}]`;
+    `Notifikasi limit ditangani backend; jangan membuat notifikasi limit sendiri.]`;
             // INJEKSI RAHASIA BIAR FORMAT LIST RAPI & BUTTON MUNCUL
             const formatReminder = `[INFO SISTEM: JANGAN PERNAH membuat list menggunakan tanda bintang (*). WAJIB gunakan angka (1, 2, 3) atau tanda minus (-). Gunakan **teks** untuk bold.]`;
-            const buttonReminder = `[INFO SISTEM: Jika suasana obrolan pas, sisipkan 1-3 tombol rekomendasi topik/meme menarik pakai sintaks <<<BUTTONS: [...]>>> di akhir balasan.]`;
-            const finalPrompt = `${currentTimeInstruction}\n${userStatusInstruction}\n${formatReminder}\n${buttonReminder}\n\n${mediaResult.finalPrompt}`;
+            const aiButtonCount =
+    Math.random() < 0.5
+        ? 2
+        : 3;
+
+const buttonReminder =
+    `[INFO SISTEM: Jika tombol rekomendasi benar-benar berguna untuk melanjutkan percakapan, ` +
+    `buat tepat ${aiButtonCount} tombol. ` +
+    `AI sendiri yang menentukan teks tombol, emoji, callback_data, dan topiknya ` +
+    `berdasarkan konteks percakapan terbaru. ` +
+    `Jika tombol tidak benar-benar berguna, jangan membuat tombol.]`;
+
+const finalPrompt = `${currentTimeInstruction}\n${userStatusInstruction}\n${formatReminder}\n${buttonReminder}\n\n${mediaResult.finalPrompt}`;
             response = await askAI(chatId, finalPrompt, mediaResult.base64Media, mediaResult.mimeTypeMedia, msg.message_id);
         } finally {
             stopRecordingPresence();
