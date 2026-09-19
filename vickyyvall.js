@@ -3094,6 +3094,7 @@ inline_keyboard =
     existingButtons.length > 0
         ? [existingButtons.slice(0, 3)]
         : [];
+}
 
 await sendReply(
     bot,
