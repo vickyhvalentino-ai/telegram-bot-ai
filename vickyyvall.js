@@ -287,6 +287,55 @@ function displayName(msg) {
     return [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username || 'Telegram User';
 }
 
+function buildResponseStyleInstruction(userText) {
+    const value =
+        String(userText || '')
+            .toLowerCase()
+            .trim();
+
+    const technical =
+        /\b(?:tugas|sekolah|kuliah|makalah|laporan|coding|kode|script|javascript|typescript|html|css|json|config|debug|debugging|error|bug|tutorial|dokumentasi|analisis|penjelasan teknis|instruksi|program|fungsi|api|railway|telegram bot)\b/i
+            .test(value);
+
+    const strongCasual =
+        /(?:wkwk|wkwkwk|awokawok|awikwok|anjir|anjg|ajg|njir|jir|cok|bangsat|bangke|cuy|bray|ngab|gas|bro|💀|😭|🤣|😂|😹|🗿|🤡|🔥|😎)/i
+            .test(value);
+
+    if (technical) {
+        return (
+            `[INFO GAYA RESPONS: USER SEDANG MEMINTA PENGERJAAN/TEKNIS. ` +
+            `Gunakan bahasa Indonesia yang rapi dan profesional. ` +
+            `Judul utama boleh HURUF KAPITAL SEMUA. ` +
+            `Isi menggunakan kapitalisasi normal. ` +
+            `Gunakan struktur yang jelas. ` +
+            `Jangan membuat seluruh isi lowercase. ` +
+            `Jika memakai point, judul point berdiri sendiri dan penjelasan berada di baris berikutnya. ` +
+            `Sub-point hanya jika benar-benar membantu.]`
+        );
+    }
+
+    if (strongCasual) {
+        return (
+            `[INFO GAYA RESPONS: USER SEDANG DALAM MODE GAUL/EMOSIONAL. ` +
+            `Ikuti energi user. ` +
+            `Boleh menggunakan bahasa tongkrongan, slang, meme, candaan, dan emoji yang relevan. ` +
+            `Boleh menggunakan lowercase secara natural. ` +
+            `Jangan berubah menjadi bahasa baku atau customer service. ` +
+            `Jika user ngegas, tetap tenang tetapi boleh membalas dengan gaya tongkrongan. ` +
+            `Jangan menghakimi user.]`
+        );
+    }
+
+    return (
+        `[INFO GAYA RESPONS: USER SEDANG OBROLAN BIASA. ` +
+        `Gunakan bahasa natural, santai, dan mengikuti cara user berbicara. ` +
+        `Jangan otomatis menjadi formal. ` +
+        `Jangan menggunakan template customer service seperti "Halo! VGen AI siap membantu." ` +
+        `Jangan memaksakan slang jika user tidak menggunakannya. ` +
+        `Gunakan respons singkat dan natural untuk sapaan sederhana.]`
+    );
+}
+
 function isCommand(text) {
     return /^(?:\/(?:start|help|mute|unmute|status|reset|addvip|addlimit|ceklimit)(?:@\w+)?(?:\s|$))/i.test(
         String(text || '').trim()
@@ -2669,8 +2718,111 @@ const extractButtonJson = source => {
     return null;
 };
 
+const extractLooseButtonJson = source => {
+    for (
+        let searchFrom = 0;
+        searchFrom < source.length;
+    ) {
+        const arrayStart =
+            source.indexOf(
+                '[',
+                searchFrom
+            );
+
+        if (arrayStart < 0) {
+            return null;
+        }
+
+        let depth = 0;
+        let inString = false;
+        let escaped = false;
+
+        for (
+            let i = arrayStart;
+            i < source.length;
+            i++
+        ) {
+            const char = source[i];
+
+            if (inString) {
+                if (escaped) {
+                    escaped = false;
+                    continue;
+                }
+
+                if (char === '\\') {
+                    escaped = true;
+                    continue;
+                }
+
+                if (char === '"') {
+                    inString = false;
+                }
+
+                continue;
+            }
+
+            if (char === '"') {
+                inString = true;
+                continue;
+            }
+
+            if (char === '[') {
+                depth++;
+            }
+
+            if (char === ']') {
+                depth--;
+
+                if (depth === 0) {
+                    const candidate =
+                        source.slice(
+                            arrayStart,
+                            i + 1
+                        );
+
+                    try {
+                        const parsed =
+                            JSON.parse(
+                                candidate
+                            );
+
+                        if (
+                            Array.isArray(parsed) &&
+                            parsed.length > 0 &&
+                            parsed.every(item =>
+                                item &&
+                                typeof item === 'object' &&
+                                String(item.text || '').trim() &&
+                                (
+                                    String(item.callback_data || '').trim() ||
+                                    String(item.url || '').trim()
+                                )
+                            )
+                        ) {
+                            return {
+                                json: candidate,
+                                start: arrayStart,
+                                end: i + 1
+                            };
+                        }
+                    } catch {}
+
+                    break;
+                }
+            }
+        }
+
+        searchFrom =
+            arrayStart + 1;
+    }
+
+    return null;
+};
+
 const buttonMatch =
-    extractButtonJson(text);
+    extractButtonJson(text) ||
+    extractLooseButtonJson(text);
 
 if (buttonMatch) {
     try {
@@ -3273,22 +3425,25 @@ try {
             // INJEKSI RAHASIA BIAR FORMAT LIST RAPI & BUTTON MUNCUL
             const formatReminder =
     `[INFO SISTEM: FORMAT TELEGRAM MUTLAK. ` +
-    `Judul berdiri sendiri lalu langsung lanjut ke main point pada baris berikutnya. ` +
-    `JANGAN membuat baris kosong setelah judul. ` +
-    `Main point boleh menggunakan nomor 1., 2., 3. dan tetap rata kiri. ` +
-    `Sub-point hanya gunakan jika memang ada sub-point. ` +
-    `Sub-point WAJIB menggunakan simbol –. ` +
-    `Tidak ada batas jumlah sub-point dalam satu main point jika memang semuanya relevan. ` +
-    `Jangan membuat – pada setiap kalimat. ` +
-    `Sub-point adalah satu paragraf logis. ` +
-    `Jangan mengatur wrapping menggunakan spasi manual. ` +
-    `Jangan memecah satu sub-point menjadi beberapa paragraf hanya karena panjang. ` +
-    `Backend akan menangani hanging indent agar baris lanjutan sub-point tetap masuk dan tidak jatuh ke margin kiri. ` +
-    `Gunakan ENTER hanya untuk main point baru, sub-point baru, judul baru, atau pergantian bait yang benar-benar diperlukan. ` +
-    `Setelah main point selesai, gunakan tepat 1 baris kosong sebelum main point berikutnya. ` +
-    `Jangan gunakan 2 baris kosong. ` +
-    `Awal main point atau sub-point sebaiknya memiliki kata penting yang BOLD. ` +
-    `Jangan menampilkan marker internal, simbol >>, atau marker backend.]`;
+    `Untuk OBROLAN BIASA, jangan memaksa numbering, judul, atau sub-point. ` +
+    `Gunakan paragraf/bait yang natural dan pisahkan pergantian pikiran dengan ENTER. ` +
+    `Untuk TUGAS/PENGERJAAN/PENJELASAN TEKNIS, gunakan struktur rapi dan rata kiri. ` +
+    `Judul utama berdiri sendiri dan gunakan HURUF KAPITAL SEMUA. ` +
+    `Setelah judul utama tidak boleh ada baris kosong. ` +
+    `Main point menggunakan 1., 2., 3., 4., 5., dan seterusnya tanpa batas angka jika memang relevan. ` +
+    `Nomor dan judul point harus berdiri sendiri pada satu baris. ` +
+    `Penjelasan WAJIB dimulai pada baris berikutnya. ` +
+    `JANGAN menulis judul point dan penjelasan pada baris yang sama. ` +
+    `Sub-point TIDAK WAJIB menggunakan simbol –. ` +
+    `Gunakan – hanya jika memang ada keterangan turunan yang benar-benar diperlukan. ` +
+    `Semua numbering dan sub-point WAJIB rata kiri. ` +
+    `Jangan menggunakan indentasi manual atau spasi panjang. ` +
+    `Gunakan tepat 1 baris kosong saat berpindah dari satu main point ke main point berikutnya. ` +
+    `Jangan membuat 2 baris kosong. ` +
+    `Awal point boleh memakai BOLD untuk kata penting. ` +
+    `Jika menggunakan code block, gunakan triple backtick standar. ` +
+    `Jika ada beberapa code block, judul code block harus dekat dan langsung berada di atas block terkait. ` +
+    `Jangan menampilkan marker backend atau instruksi internal.]`;
             const aiButtonCount =
     Math.random() < 0.55
         ? 2
@@ -3303,7 +3458,18 @@ const buttonReminder =
     `Jangan membuat tombol generik yang terasa dipaksakan. ` +
     `Jika tombol benar-benar tidak membantu, jangan membuat tombol.]`;
 
-const finalPrompt = `${currentTimeInstruction}\n${userStatusInstruction}\n${formatReminder}\n${buttonReminder}\n\n${mediaResult.finalPrompt}`;
+const styleInstruction =
+    buildResponseStyleInstruction(
+        text
+    );
+
+const finalPrompt =
+    `${currentTimeInstruction}\n` +
+    `${styleInstruction}\n` +
+    `${userStatusInstruction}\n` +
+    `${formatReminder}\n` +
+    `${buttonReminder}\n\n` +
+    `${mediaResult.finalPrompt}`;
             response = await askAI(chatId, finalPrompt, mediaResult.base64Media, mediaResult.mimeTypeMedia, msg.message_id);
         } finally {
             stopRecordingPresence();
